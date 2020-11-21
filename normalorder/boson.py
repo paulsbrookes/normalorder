@@ -122,35 +122,6 @@ class Operator:
     def copy(self):
         return Operator(self.data.copy())
 
-    def from_frame(self, frame_spec, modes=None):
-        if isinstance(modes,str):
-            modes = [modes]
-        if modes is None:
-            n_modes = (frame_spec.shape[1] - 1) // 2
-            modes = [ascii_lowercase[i] for i in range(n_modes)]
-        self.modes = modes
-        ladder_op_names = []
-        for l in modes:
-            ladder_op_names += [l + '_dag', l]
-        self.ladder_op_names = ladder_op_names
-        columns = ['coeff'] + ladder_op_names
-        self.data = frame_spec.copy()
-        self.data.columns = columns
-        self.consolidate()
-
-    def from_list(self, list_spec, modes=None):
-        if modes is None:
-            n_modes = (len(list_spec[0]) - 1) // 2
-            modes = [ascii_lowercase[i] for i in range(n_modes)]
-        ladder_op_names = []
-        for l in modes:
-            ladder_op_names += [l + '_dag', l]
-        self.ladder_op_names = ladder_op_names
-        columns = ladder_op_names + ['coeff']
-        self.data = pd.DataFrame(list_spec, columns=columns)
-        self.modes = modes
-        self.consolidate()
-
     def consolidate(self):
         self.data = self.data.groupby(list(self.data.columns[1:]))['coeff'].sum().reset_index()
         mask = ~np.isclose(self.data['coeff'], 0)
