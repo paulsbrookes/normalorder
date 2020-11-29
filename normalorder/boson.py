@@ -35,7 +35,7 @@ def multiply_components_raw(k, l, m, n):
 def multiply_components(component_1, component_2, mode_name):
     assert component_1.shape[0] == 1 and component_2.shape[0] == 1
 
-    columns = [mode_name + '_dag', mode_name, 'coeff']
+    columns = ['coeff', mode_name + '_dag', mode_name]
 
     k = component_1[mode_name + '_dag'].iloc[0]
     l = component_1[mode_name].iloc[0]
@@ -51,7 +51,7 @@ def multiply_components(component_1, component_2, mode_name):
 
     output_raw = multiply_components_raw(k, l, m, n)
     output_raw[:, 0] *= c
-    output = pd.DataFrame(output_raw[:, [1, 2, 0]], columns=columns)
+    output = pd.DataFrame(output_raw, columns=columns)
 
     return output
 
@@ -63,7 +63,7 @@ class Operator:
         if isinstance(modes,str):
             modes = [modes]
         if modes is None:
-            n_modes = (frame_spec.shape[1] - 1) // 2
+            n_modes = (spec.shape[1] - 1) // 2
             modes = [ascii_lowercase[i] for i in range(n_modes)]
         self.modes = modes
 
@@ -78,15 +78,15 @@ class Operator:
             self.data = pd.DataFrame(spec, columns=columns)
         elif isinstance(spec, pd.DataFrame):
             self.data = spec.copy()
-            self.data.columns = columns
+            #self.data.columns = spec.columns
 
         self.consolidate()
 
     def __add__(self, other):
         if not isinstance(other, Operator):
-            other = Operator([(0, 0, other)])
+            other = Operator([(0, 0, other)],modes=self.modes)
         combined_data = pd.concat([self.data, other.data])
-        output_operator = Operator(combined_data)
+        output_operator = Operator(combined_data,modes=self.modes)
         return output_operator
 
     def __sub__(self, other):
@@ -123,9 +123,10 @@ class Operator:
         return Operator(self.data.copy())
 
     def consolidate(self):
-        self.data = self.data.groupby(list(self.data.columns[1:]))['coeff'].sum().reset_index()
-        mask = ~np.isclose(self.data['coeff'], 0)
-        self.data = self.data[mask]
+        self.data = self.data.groupby(self.ladder_op_names)['coeff'].sum().reset_index()
+        self.data = self.data[['coeff']+self.ladder_op_names]
+        #mask = ~np.isclose(self.data['coeff'], 0)
+        #self.data = self.data[mask]
 
     def dag(self):
         output_operator = self.copy()
@@ -167,15 +168,16 @@ def multiply_operators(op_1, op_2):
 def multiply_terms(term_1, term_2, modes):
     component_products = []
     for l in modes:
-        component_1 = term_1[[l + '_dag', l]].copy()
+        component_1 = term_1[['coeff']+[l + '_dag', l]].copy()
         component_1['coeff'] = 1.0
-        component_2 = term_2[[l + '_dag', l]].copy()
+        component_2 = term_2[['coeff']+[l + '_dag', l]].copy()
         component_2['coeff'] = 1.0
         out = multiply_components(component_1, component_2, l)
         component_product = Operator(out, modes=[l])
         component_products.append(component_product)
 
-    tensored_products = term_1['coeff'].iloc[0] * term_2['coeff'].iloc[0] * component_products[0]
+    #tensored_products = term_1['coeff'].iloc[0] * term_2['coeff'].iloc[0] * component_products[0]
+    tensored_products = component_products[0]
     for idx in range(len(modes) - 1):
         tensored_products = tensor(tensored_products, component_products[idx + 1])
 
