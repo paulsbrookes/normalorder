@@ -84,7 +84,7 @@ class Operator:
 
     def __add__(self, other):
         if not isinstance(other, Operator):
-            other = Operator([(0, 0, other)],modes=self.modes)
+            other = Operator([[other] + [0,0]*len(self.modes)],modes=self.modes)
         combined_data = pd.concat([self.data, other.data])
         output_operator = Operator(combined_data,modes=self.modes)
         return output_operator
@@ -176,8 +176,8 @@ def multiply_terms(term_1, term_2, modes):
         component_product = Operator(out, modes=[l])
         component_products.append(component_product)
 
-    #tensored_products = term_1['coeff'].iloc[0] * term_2['coeff'].iloc[0] * component_products[0]
-    tensored_products = component_products[0]
+    tensored_products = term_1['coeff'].iloc[0] * term_2['coeff'].iloc[0] * component_products[0]
+    #tensored_products = component_products[0]
     for idx in range(len(modes) - 1):
         tensored_products = tensor(tensored_products, component_products[idx + 1])
 
