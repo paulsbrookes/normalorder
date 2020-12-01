@@ -112,13 +112,21 @@ def gen_delta_pow_series(exponent, order, potential_coeffs, x_sym):
 class Model:
 
     def __init__(self):
-        self.__max_order = 0
-        self.order = 0
         self.c_sym = ()
         self.resonator_params = {}
+        self.potential_expr = None
+        self.potential_param_symbols = {}
+        self.potential_params = {}
+        self.c_expr = ()
+        self.phi_min = None
         self.__g_expr = ()
+        self.__max_order = 0
+        self.order = 0
+        self.set_order(self.order)
 
-    def set_order(self, order):
+    def set_order(self, order: int):
+        if order < 0:
+            raise Exception('The order must be non-negative integer.')
         c_sym, g_expr = g_expr_gen(order=max(self.__max_order, order))
         self.__max_order = max(self.__max_order, order)
         self.order = order
@@ -134,24 +142,21 @@ class Model:
     def set_resonator_params(self, params):
         self.resonator_params = params
 
-    def set_potential(self, potential):
-        self.potential = potential
-        self.c_expr = [self.c_expr_gen(m) for m in range(self.order + 2)]
+    def set_potential(self, potential_expr, potential_param_symbols):
+        self.potential_param_symbols = potential_param_symbols
+        self.potential_expr = potential_expr
+        self.c_expr = tuple(self.c_expr_gen(m) for m in range(self.order + 2))
 
-    def find_phi_min(self, x0=None):
-        def wrapper(x):
-            return self.g_func(1, x[0], self.resonator_params['phi_ext'], self.resonator_params['nu'])
-
-        if x0 is None:
-            x0 = 2 * np.pi * 3 * np.random.rand(1)
-        res = optimize.root(wrapper, x0, tol=0)
-        self.phi_min = res.x[0]
+    def set_potential_params(self, params):
+        self.potential_params = params
 
     def c_expr_gen(self, m):
-        return diff(self.potential, phi_sym, m) / (special.factorial(m))
+        return diff(self.potential_expr, phi_sym, m) / (special.factorial(m))
 
-    def c_func(self, m, phi, phi_ext, nu):
-        c_value = np.float(self.c_expr[m].subs([(phi_ext_sym, phi_ext), (phi_sym, phi), (nu_sym, nu)]).evalf())
+    def c_func(self, m, phi):
+        substitutions = [(self.potential_param_symbols[key], self.potential_params[key]) for key in self.potential_param_symbols.keys()]
+        substitutions += [(phi_sym, phi)]
+        c_value = np.float(self.c_expr[m].subs(substitutions).evalf())
         return c_value
 
     def U_func(self, phi, phi_ext, nu):
@@ -160,9 +165,19 @@ class Model:
         U = np.float(self.potential.subs([(phi_ext_sym, phi_ext), (phi_sym, phi), (nu_sym, nu)]).evalf())
         return U
 
-    def g_func(self, m, phi, phi_ext, nu):
-        substitutions = [(self.c_sym[m], self.c_func(m, phi, phi_ext, nu)) for m in range(self.order + 2)]
-        return np.float(self.g_expr[m].subs(substitutions))
+    def g_func(self, m, phi):
+        substitutions = [(self.c_sym[m], self.c_func(m, phi)) for m in range(self.order + 2)]
+        return np.float(self.g_expr_gen(m).subs(substitutions))
+
+    def find_phi_min(self, x0=None):
+
+        def wrapper(x):
+            return self.c_func(1, x[0])
+
+        if x0 is None:
+            x0 = 2 * np.pi * 3 * np.random.rand(1)
+        res = optimize.root(wrapper, x0, tol=0)
+        self.phi_min = res.x[0]
 
     def generate_hamiltonian(self, modes=['a'], rotation_factors=None):
         if rotation_factors is None:
