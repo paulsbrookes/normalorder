@@ -117,6 +117,7 @@ class Model:
         self.potential_expr = None
         self.potential_param_symbols = {}
         self.potential_params = {}
+        self.potential_param_substitutions = []
         self.c_expr = ()
         self.phi_min = None
         self.__g_expr = ()
@@ -149,21 +150,22 @@ class Model:
 
     def set_potential_params(self, params):
         self.potential_params = params
+        self.potential_param_substitutions = [(self.potential_param_symbols[key], self.potential_params[key])
+                                              for key in self.potential_param_symbols.keys()]
+        self.find_phi_min()
 
     def c_expr_gen(self, m):
         return diff(self.potential_expr, phi_sym, m) / (special.factorial(m))
 
     def c_func(self, m, phi):
-        substitutions = [(self.potential_param_symbols[key], self.potential_params[key]) for key in self.potential_param_symbols.keys()]
-        substitutions += [(phi_sym, phi)]
+        substitutions = self.potential_param_substitutions + [(phi_sym, phi)]
         c_value = np.float(self.c_expr[m].subs(substitutions).evalf())
         return c_value
 
-    def U_func(self, phi, phi_ext, nu):
-        if not isinstance(phi, float):
-            phi = phi[0]
-        U = np.float(self.potential.subs([(phi_ext_sym, phi_ext), (phi_sym, phi), (nu_sym, nu)]).evalf())
-        return U
+    def potential_func(self, phi):
+        substitutions = self.potential_param_substitutions + [(phi_sym, phi)]
+        potential = np.float(self.potential_expr.subs(substitutions).evalf())
+        return potential
 
     def g_func(self, m, phi):
         substitutions = [(self.c_sym[m], self.c_func(m, phi)) for m in range(self.order + 2)]
@@ -175,7 +177,7 @@ class Model:
             return self.c_func(1, x[0])
 
         if x0 is None:
-            x0 = 2 * np.pi * 3 * np.random.rand(1)
+            x0 = 2 * np.pi * 3 * np.random.rand()
         res = optimize.root(wrapper, x0, tol=0)
         self.phi_min = res.x[0]
 
@@ -198,14 +200,13 @@ class Model:
 
         x = 0
         for mode, op in zip(modes, annihilation_ops):
-            x += params['I_ratio_' + mode] * (op + op.dag())
+            x += self.resonator_params['I_ratio_' + mode] * (op + op.dag())
         self.x = x
         x_pow = 1
-        U = 2 * np.pi * self.resonator_params['f_J'] * self.g_func(0, self.phi_min, self.resonator_params['phi_ext'], self.resonator_params['nu'])
+        U = 2 * np.pi * self.resonator_params['f_J'] * self.g_func(0, self.phi_min)
         for m in range(1, self.order + 1):
             x_pow *= x
-            U += 2 * np.pi * self.resonator_params['f_J'] * self.g_func(m, self.phi_min, self.resonator_params['phi_ext'],
-                                                                        self.resonator_params['nu']) * x_pow
+            U += 2 * np.pi * self.resonator_params['f_J'] * self.g_func(m, self.phi_min) * x_pow
         hamiltonian += U
         hamiltonian = apply_rwa(hamiltonian)
         self.hamiltonian = hamiltonian
