@@ -189,7 +189,7 @@ class TestModel(TestCase):
         self.model.set_modes()
         self.model.generate_hamiltonian()
 
-    def test_generate_potential_series(self):
+    def test_generate_hamiltonian(self):
         phi_sym, phi_ext_sym, nu_sym, n_sym = sympy.symbols('phi phi_ext nu n')
         potential_param_symbols = {'phi_ext': phi_ext_sym,
                                    'nu': nu_sym,
@@ -201,7 +201,7 @@ class TestModel(TestCase):
         potential_params = {'phi_ext': phi_ext,
                             'n': n,
                             'nu': nu}
-        order = 10
+        order = 2
 
         self.model.set_order(order)
         self.model.set_potential(potential_expr, potential_param_symbols)
@@ -218,8 +218,47 @@ class TestModel(TestCase):
                             'epsilon': 0.0001,
                             'kappa_a': 0.0001,
                             'kappa_b': 0.0002}
+
         self.model.set_resonator_params(resonator_params)
         self.model.set_modes()
-        self.model.generate_potential_series()
+        self.model.generate_resonator_hamiltonian()
+        self.model.generate_potential_hamiltonian()
+
+    def test_generate_eom_func(self):
+        phi_sym, phi_ext_sym, nu_sym, n_sym = sympy.symbols('phi phi_ext nu n')
+        potential_param_symbols = {'phi_ext': phi_ext_sym,
+                                   'nu': nu_sym,
+                                   'n': n_sym}
+        potential_expr = -nu_sym * sympy.cos(phi_sym) - n_sym * sympy.cos((phi_ext_sym - phi_sym) / n_sym)
+        n = 3
+        phi_ext = 2 * np.pi * np.random.rand()
+        nu = np.random.rand() * 0.9 / n
+        potential_params = {'phi_ext': phi_ext,
+                            'n': n,
+                            'nu': nu}
+        order = 4
+
+        self.model.set_order(order)
+        self.model.set_potential(potential_expr, potential_param_symbols)
+        self.model.set_potential_params(potential_params)
+
+        resonator_params = {'f_a': 0.0,
+                            'f_b': 0.0,
+                            'f_d': 0.0,
+                            'f_J': 7500.0,
+                            'phi_ext': phi_ext,
+                            'nu': nu,
+                            'I_ratio_a': 0.001,
+                            'I_ratio_b': 0.001,
+                            'epsilon': 0.0001,
+                            'kappa_a': 0.0001,
+                            'kappa_b': 0.0002}
+
+        self.model.set_resonator_params(resonator_params)
+        self.model.set_modes()
+        self.model.generate_hamiltonian()
+        self.model.generate_lindblad_ops()
+        self.model.generate_eom_expr()
+        self.model.generate_eom_func()
         pass
 
