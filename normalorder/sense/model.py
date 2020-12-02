@@ -1,8 +1,10 @@
 from sympy import symbols, diff, Order, collect
+import sympy
 from scipy import special, optimize
 import numpy as np
 import functools
 from normalorder.operator.boson import Operator
+import copy
 
 phi_sym = symbols('phi')
 
@@ -114,15 +116,21 @@ class Model:
     def __init__(self):
         self.c_sym = ()
         self.resonator_params = {}
+        self.resonator_syms = {}
         self.potential_expr = None
-        self.potential_param_symbols = {}
+        self.potential_syms = {}
         self.potential_params = {}
         self.potential_param_substitutions = []
+        self.annihilation_ops = ()
         self.c_expr = ()
         self.phi_min = None
+        self.modes = None
+        self.rotation_factors = None
         self.__g_expr = ()
         self.__max_order = 0
         self.order = 0
+        self.hamiltonian = None
+        self.potential_series = None
         self.set_order(self.order)
 
     def set_order(self, order: int):
@@ -133,6 +141,7 @@ class Model:
         self.order = order
         self.c_sym = c_sym[:order+2]
         self.__g_expr = g_expr[:order+1]
+        self.g_sym = symbols(' '.join(['g_' + str(i) for i in range(self.order + 1)]))
 
     def g_expr_gen(self, m):
         if m > self.order:
@@ -142,16 +151,19 @@ class Model:
 
     def set_resonator_params(self, params):
         self.resonator_params = params
+        self.resonator_syms = {}
+        for key in params.keys():
+            self.resonator_syms[key] = sympy.Symbol(key)
 
     def set_potential(self, potential_expr, potential_param_symbols):
-        self.potential_param_symbols = potential_param_symbols
+        self.potential_syms = potential_param_symbols
         self.potential_expr = potential_expr
         self.c_expr = tuple(self.c_expr_gen(m) for m in range(self.order + 2))
 
     def set_potential_params(self, params):
         self.potential_params = params
-        self.potential_param_substitutions = [(self.potential_param_symbols[key], self.potential_params[key])
-                                              for key in self.potential_param_symbols.keys()]
+        self.potential_param_substitutions = [(self.potential_syms[key], self.potential_params[key])
+                                              for key in self.potential_syms.keys()]
         self.find_phi_min()
 
     def c_expr_gen(self, m):
@@ -181,35 +193,48 @@ class Model:
         res = optimize.root(wrapper, x0, tol=0)
         self.phi_min = res.x[0]
 
-    def generate_hamiltonian(self, modes=['a'], rotation_factors=None):
+    def set_modes(self, modes=None, rotation_factors=None):
+        if modes is None:
+            self.modes = tuple('a')
+        else:
+            self.modes = modes
         if rotation_factors is None:
-            rotation_factors = 1 + np.arange(len(modes))
+            self.rotation_factors = tuple(1 + np.arange(len(self.modes)))
+        else:
+            self.rotation_factors = rotation_factors
         annihilation_ops = []
-        for idx in range(len(modes)):
-            specification = [[1] + 2 * len(modes) * [0]]
+        for idx in range(len(self.modes)):
+            specification = [[1] + 2 * len(self.modes) * [0]]
             specification[0][2 * (idx + 1)] = 1
-            annihilation_ops.append(Operator(specification, modes=modes))
-        self.annihilation_ops = annihilation_ops
-        self.modes = modes
-        self.rotation_factors = rotation_factors
-        hamiltonian = [0]
-        for factor, mode, op in zip(rotation_factors, modes, annihilation_ops):
-            hamiltonian += [2 * np.pi * (self.resonator_params['f_' + mode] - factor * self.resonator_params['f_d']) * op.dag() * op]
-        hamiltonian = sum(hamiltonian)
-        hamiltonian += 2 * np.pi * self.resonator_params['epsilon'] * (annihilation_ops[0] + annihilation_ops[0].dag())
+            annihilation_ops.append(Operator(specification, modes=self.modes))
+        self.annihilation_ops = tuple(annihilation_ops)
 
-        x = 0
-        for mode, op in zip(modes, annihilation_ops):
-            x += self.resonator_params['I_ratio_' + mode] * (op + op.dag())
-        self.x = x
-        x_pow = 1
-        U = 2 * np.pi * self.resonator_params['f_J'] * self.g_func(0, self.phi_min)
+    def generate_hamiltonian(self):
+        hamiltonian = [0]
+        for factor, mode, op in zip(self.rotation_factors, self.modes, self.annihilation_ops):
+            hamiltonian += [2 * np.pi * (self.resonator_params['f_' + mode] - factor * self.resonator_params['f_d'])
+                            * op.dag() * op]
+        hamiltonian = sum(hamiltonian)
+        hamiltonian += 2 * np.pi * self.resonator_params['epsilon'] * (self.annihilation_ops[0]
+                                                                       + self.annihilation_ops[0].dag())
+
+        U = 0.0
+        mode_coeffs = tuple(self.resonator_params['I_ratio_'+mode] for mode in self.modes)
         for m in range(1, self.order + 1):
-            x_pow *= x
-            U += 2 * np.pi * self.resonator_params['f_J'] * self.g_func(m, self.phi_min) * x_pow
+            U += 2 * np.pi * self.resonator_params['f_J'] * self.g_func(m, self.phi_min) \
+                 * generate_x_pow(m, mode_coeffs=mode_coeffs)
         hamiltonian += U
         hamiltonian = apply_rwa(hamiltonian)
         self.hamiltonian = hamiltonian
+
+    def generate_potential_series(self):
+        self.potential_series = 0.0
+        mode_coeffs = tuple(self.resonator_syms['I_ratio_'+mode] for mode in self.modes)
+
+        for m in range(0, self.order + 1):
+            x_pow = generate_x_pow(m, mode_coeffs=mode_coeffs)
+            self.potential_series += 2 * np.pi * self.resonator_syms['f_J'] * self.g_sym[m] * x_pow
+        self.potential_series = apply_rwa(self.potential_series)
 
     def generate_eom(self):
         eom_operators = []
@@ -227,3 +252,16 @@ class Model:
         self.eom = eom
 
 
+@functools.lru_cache(maxsize=64)
+def generate_x_pow(exponent: int, mode_coeffs=(1,)):
+    n_modes = len(mode_coeffs)
+    if exponent > 0:
+        annihilation_ops = []
+        for idx in range(n_modes):
+            ledger = [[mode_coeffs[idx]] + [0, 0]*n_modes]
+            ledger[0][2*(idx+1)] = 1
+            annihilation_ops.append(Operator(ledger))
+            x = sum(op+op.dag() for op in annihilation_ops)
+            return copy.deepcopy(x*generate_x_pow(exponent-1, mode_coeffs=mode_coeffs))
+    else:
+        return 1

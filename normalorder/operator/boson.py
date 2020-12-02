@@ -63,7 +63,7 @@ class Operator:
         if isinstance(modes,str):
             modes = [modes]
         if modes is None:
-            n_modes = (spec.shape[1] - 1) // 2
+            n_modes = (np.array(spec).shape[1] - 1) // 2
             modes = [ascii_lowercase[i] for i in range(n_modes)]
         self.modes = modes
 
@@ -125,6 +125,7 @@ class Operator:
     def consolidate(self):
         self.data = self.data.groupby(self.ladder_op_names)['coeff'].sum().reset_index()
         self.data = self.data[['coeff']+self.ladder_op_names]
+        pass
         #mask = ~np.isclose(self.data['coeff'], 0)
         #self.data = self.data[mask]
 
