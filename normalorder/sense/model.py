@@ -296,7 +296,6 @@ class Model:
         substitutions = [(self.c_sym[m], self.c_func(m, phi)) for m in range(self.order + 2)]
         return diff(self.g_expr_gen(m).subs(substitutions), self.potential_syms[param])
 
-    def Dg_Dparam
 
 def Dg_Dphiext_expr_gen(m):
     Dg_Dphiext = diff(g_expr[m],phi_sym)*Dphimin_Dphiext_expr + diff(g_expr[m],phi_ext_sym)
