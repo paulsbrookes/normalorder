@@ -134,7 +134,7 @@ class Model:
         self.potential_hamiltonian = None
         self.resonator_hamiltonian = None
         self.lindblad_ops = ()
-        self.eom_expr = ()
+        self.eom_ops = ()
         self.set_order(self.order)
         self.eom = None
 
@@ -156,9 +156,11 @@ class Model:
 
     def set_resonator_params(self, params):
         self.resonator_params = params
+
+    def set_resonator_syms(self, syms):
         self.resonator_syms = {}
-        for key in params.keys():
-            self.resonator_syms[key] = sympy.Symbol(key)
+        for sym in syms:
+            self.resonator_syms[sym] = sympy.Symbol(sym)
 
     def set_potential(self, potential_expr, potential_param_symbols):
         self.potential_syms = potential_param_symbols
@@ -214,40 +216,22 @@ class Model:
             annihilation_ops.append(Operator(specification, modes=self.modes))
         self.annihilation_ops = tuple(annihilation_ops)
 
-    def generate_hamiltonian(self):
-        hamiltonian = [0]
-        for factor, mode, op in zip(self.rotation_factors, self.modes, self.annihilation_ops):
-            hamiltonian += [2 * np.pi * (self.resonator_params['f_' + mode] - factor * self.resonator_params['f_d'])
-                            * op.dag() * op]
-        hamiltonian = sum(hamiltonian)
-        hamiltonian += 2 * np.pi * self.resonator_params['epsilon'] * (self.annihilation_ops[0]
-                                                                       + self.annihilation_ops[0].dag())
-
-        U = 0.0
-        mode_coeffs = tuple(self.resonator_params['I_ratio_'+mode] for mode in self.modes)
-        for m in range(1, self.order + 1):
-            U += 2 * np.pi * self.resonator_params['f_J'] * self.g_func(m, self.phi_min) \
-                 * generate_x_pow(m, mode_coeffs=mode_coeffs)
-        hamiltonian += U
-        hamiltonian = apply_rwa(hamiltonian)
-        self.hamiltonian = hamiltonian
-
     def generate_potential_hamiltonian(self):
         self.potential_hamiltonian = 0.0
         mode_coeffs = tuple(self.resonator_syms['I_ratio_'+mode] for mode in self.modes)
 
         for m in range(0, self.order + 1):
             x_pow = generate_x_pow(m, mode_coeffs=mode_coeffs)
-            self.potential_hamiltonian += 2 * np.pi * self.resonator_syms['f_J'] * self.g_sym[m] * x_pow
+            self.potential_hamiltonian += 2 * sympy.pi * self.resonator_syms['f_J'] * self.g_sym[m] * x_pow
         self.potential_hamiltonian = apply_rwa(self.potential_hamiltonian)
 
     def generate_resonator_hamiltonian(self):
         self.resonator_hamiltonian = 0.0
 
         for factor, mode, op in zip(self.rotation_factors, self.modes, self.annihilation_ops):
-            self.resonator_hamiltonian += 2 * np.pi * (self.resonator_syms['f_' + mode]
+            self.resonator_hamiltonian += 2 * sympy.pi * (self.resonator_syms['f_' + mode]
                                                        - factor * self.resonator_syms['f_d']) * op.dag() * op
-        self.resonator_hamiltonian += 2 * np.pi * self.resonator_syms['epsilon'] \
+        self.resonator_hamiltonian += 2 * sympy.pi * self.resonator_syms['epsilon'] \
                                         * (self.annihilation_ops[0] + self.annihilation_ops[0].dag())
 
     def generate_hamiltonian(self):
@@ -262,33 +246,66 @@ class Model:
             lindblad_ops.append(decay_rate*op)
         self.lindblad_ops = tuple(lindblad_ops)
 
-    def generate_eom_expr(self):
-        eom_expr = []
+    def generate_eom_ops(self):
+        eom_ops = []
         for an_op in self.annihilation_ops:
             mode_eom_expr = 1j*(self.hamiltonian*an_op-an_op*self.hamiltonian)
-            for l in self.lindblad_ops:
-                mode_eom_expr += l.dag()*an_op*l - 0.5*an_op*l.dag()*l - 0.5*l.dag()*l*an_op
-            eom_expr += [mode_eom_expr]
-        self.eom_expr = tuple(eom_expr)
+            for l_op in self.lindblad_ops:
+                mode_eom_expr += l_op.dag()*an_op*l_op - 0.5*an_op*l_op.dag()*l_op - 0.5*l_op.dag()*l_op*an_op
+            eom_ops += [mode_eom_expr]
+        self.eom_ops = tuple(eom_ops)
 
-    def generate_eom_func(self):
-        eom_functions = []
-        g_substitutions = [(g_sym, g_expr) for g_sym, g_expr in zip(self.g_sym, self.__g_expr)]
-        c_substitutions = [(c_sym, self.c_func(m, self.phi_min)) for m, c_sym in enumerate(self.c_sym)]
+    def generate_eom_exprs(self):
+        eom_exprs = []
+        for eom_op in self.eom_ops:
+            field_syms, eom_expr = convert_op_to_expr(eom_op)
+            eom_exprs.append(eom_expr)
+        self.eom_exprs = tuple(eom_exprs)
+        self.field_syms = field_syms
+
+    def generate_eom(self):
+        eom_funcs = []
+        #g_substitutions = [(g_sym, g_expr) for g_sym, g_expr in zip(self.g_sym, self.__g_expr)]
+        #c_substitutions = [(c_sym, self.c_func(m, self.phi_min)) for m, c_sym in enumerate(self.c_sym)]
+        g_substitutions = [(g_sym, self.g_func(m, self.phi_min)) for m, g_sym in enumerate(self.g_sym)]
         resonator_substitutions = [(self.resonator_syms[key], self.resonator_params[key]) for key in self.resonator_syms.keys()]
+        substitutions = g_substitutions + resonator_substitutions
 
-        for eom_expr in self.eom_expr:
-            eom_sub = copy.deepcopy(eom_expr)
-            for idx in range(eom_sub.data.shape[0]):
-                eom_sub.data['coeff'].iloc[idx] \
-                    = eom_sub.data['coeff'].iloc[idx].subs(g_substitutions).subs(c_substitutions).subs(resonator_substitutions)
-            eom_functions.append(classical_function_factory(eom_sub))
+        for eom_expr in self.eom_exprs:
+            #eom_expr = eom_expr.xreplace(g_substitutions+resonator_substitutions)
+            for pair in substitutions:
+                eom_expr = eom_expr.replace(*pair)
+            self.test = eom_expr
+            #eom_expr = eom_expr.subs(g_substitutions).subs(c_substitutions).subs(resonator_substitutions)
+            eom_func = sympy.lambdify(self.field_syms, eom_expr)
+            eom_funcs.append(eom_func)
 
         def eom(fields):
-            Dfields = np.array([eom_func(fields) for eom_func in eom_functions])
+            Dfields = np.array([eom_func(*fields) for eom_func in eom_funcs])
             return Dfields
-
         self.eom = eom
+
+    def Dphimin_Dparam_func(self, param):
+        Dphimin_Dparam_expr = - diff(self.c_expr_gen(1), self.potential_syms[param])/diff(self.c_expr_gen(1), phi_sym)
+        substitutions = self.potential_param_substitutions + [(phi_sym, self.phi_min)]
+        substitutions_dict = {sym: value for sym, value in substitutions}
+        out = np.float(Dphimin_Dparam_expr.evalf(subs=substitutions_dict))
+        return out
+
+    def Dg_Dparam_func(self, m, phi, param):
+        substitutions = [(self.c_sym[m], self.c_func(m, phi)) for m in range(self.order + 2)]
+        return diff(self.g_expr_gen(m).subs(substitutions), self.potential_syms[param])
+
+    def Dg_Dparam
+
+def Dg_Dphiext_expr_gen(m):
+    Dg_Dphiext = diff(g_expr[m],phi_sym)*Dphimin_Dphiext_expr + diff(g_expr[m],phi_ext_sym)
+    return Dg_Dphiext
+
+def Dg_Dphiext_func(m,phi,phi_ext,nu):
+    Dg_Dphiext_expr = Dg_Dphiext_expr_gen(m)
+    out = np.float(Dg_Dphiext_expr.subs([(phi_ext_sym,phi_ext),(phi_sym,phi),(nu_sym,nu)]).evalf())
+    return out
 
 
 def convert_op_to_expr(op):
@@ -307,7 +324,7 @@ def convert_op_to_expr(op):
         term = op.data['coeff'].iloc[idx]*np.product(field_array**exponents)
         expr += term
 
-    return expr
+    return field_syms, expr
 
 
 @functools.lru_cache(maxsize=64)
@@ -319,8 +336,8 @@ def generate_x_pow(exponent: int, mode_coeffs=(1,)):
             ledger = [[mode_coeffs[idx]] + [0, 0]*n_modes]
             ledger[0][2*(idx+1)] = 1
             annihilation_ops.append(Operator(ledger))
-            x = sum(op+op.dag() for op in annihilation_ops)
-            return x * generate_x_pow(exponent - 1, mode_coeffs=mode_coeffs)
+        x = sum(op+op.dag() for op in annihilation_ops)
+        return copy.deepcopy(x * generate_x_pow(exponent - 1, mode_coeffs=mode_coeffs))
     else:
         return 1
 

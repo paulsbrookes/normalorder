@@ -253,12 +253,15 @@ class TestModel(TestCase):
                             'epsilon': 0.0001,
                             'kappa_a': 0.0001,
                             'kappa_b': 0.0002}
+        modes = ['a', 'b']
 
         self.model.set_resonator_params(resonator_params)
-        self.model.set_modes()
+        self.model.set_modes(modes=modes)
         self.model.generate_hamiltonian()
         self.model.generate_lindblad_ops()
-        self.model.generate_eom_expr()
-        self.model.generate_eom_func()
+        self.model.generate_eom_ops()
+        self.model.generate_eom()
+        x = np.array([1.0,2.0])
+        output = self.model.eom(x)
         pass
 
