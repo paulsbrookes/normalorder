@@ -27,7 +27,7 @@ class TestModel(TestCase):
 
     def test_c_and_g_expr_gen(self):
         phi_sym, phi_ext_sym, nu_sym, n_sym = sympy.symbols('phi phi_ext nu n')
-        potential_param_symbols = {'phi_ext': phi_ext_sym,
+        potential_param_syms = {'phi_ext': phi_ext_sym,
                                    'nu': nu_sym,
                                    'n': n_sym}
         potential_expr = -nu_sym * sympy.cos(phi_sym) - n_sym * sympy.cos((phi_ext_sym - phi_sym) / n_sym)
@@ -40,7 +40,7 @@ class TestModel(TestCase):
         order = 3
 
         self.model.set_order(order)
-        self.model.set_potential(potential_expr, potential_param_symbols)
+        self.model.set_potential(potential_expr, potential_param_syms)
         self.model.set_potential_params(potential_params)
 
         for idx in range(order + 2):
@@ -52,8 +52,12 @@ class TestModel(TestCase):
             assert isinstance(self.model.g_func(idx, phi), float)
 
     def test_set_resonator_params(self):
-        params = {'a': 1.0,
-                  'b': 'test'}
+        params_a = {'f': 1.0,
+                    'kappa': 'test'}
+        params_b = {'f': 2.0,
+                    'kappa': 'asdf'}
+        params = {'a': params_a,
+                  'b': params_b}
         self.model.set_resonator_params(params)
         self.assertEqual(self.model.resonator_params, params)
 
@@ -87,17 +91,20 @@ class TestModel(TestCase):
             self.assertAlmostEqual(self.model.c_func(m, offset), test_c[m], places=14)
 
     def test_potential_func(self):
-        phi_sym, phi_ext_sym, nu_sym, n_sym = sympy.symbols('phi phi_ext nu n')
+        phi_sym, phi_ext_sym, nu_sym, n_sym, f_J_sym = sympy.symbols('phi phi_ext nu n f_J')
         potential_param_symbols = {'phi_ext': phi_ext_sym,
                                    'nu': nu_sym,
-                                   'n': n_sym}
+                                   'n': n_sym,
+                                   'f_J': f_J_sym}
         potential_expr = -nu_sym * sympy.cos(phi_sym) - n_sym * sympy.cos((phi_ext_sym - phi_sym) / n_sym)
         n = 3
         phi_ext = 2 * np.pi * np.random.rand()
         nu = np.random.rand() * 0.9 / n
+        f_J = 7500.0
         potential_params = {'phi_ext': phi_ext,
                             'nu': nu,
-                            'n': n}
+                            'n': n,
+                            'f_J': f_J}
 
         self.model.set_potential(potential_expr, potential_param_symbols)
         self.model.set_potential_params(potential_params)
@@ -112,17 +119,20 @@ class TestModel(TestCase):
                 self.assertEqual(self.model.potential_func(phi), potential_expr.subs(substitutions))
 
     def test_g_func(self):
-        phi_sym, phi_ext_sym, nu_sym, n_sym = sympy.symbols('phi phi_ext nu n')
+        phi_sym, phi_ext_sym, nu_sym, n_sym, f_J_sym = sympy.symbols('phi phi_ext nu n f_J')
         potential_param_symbols = {'phi_ext': phi_ext_sym,
                                    'nu': nu_sym,
-                                   'n': n_sym}
+                                   'n': n_sym,
+                                   'f_J': f_J_sym}
         potential_expr = -nu_sym * sympy.cos(phi_sym) - n_sym * sympy.cos((phi_ext_sym - phi_sym) / n_sym)
         n = 3
         phi_ext = 2 * np.pi * np.random.rand()
         nu = np.random.rand() * 0.9 / n
+        f_J = 7500.0
         potential_params = {'phi_ext': phi_ext,
                             'nu': nu,
-                            'n': n}
+                            'n': n,
+                            'f_J': f_J}
 
         self.model.set_potential(potential_expr, potential_param_symbols)
         self.model.set_potential_params(potential_params)
@@ -132,17 +142,20 @@ class TestModel(TestCase):
             self.assertNotNone(self.mode.g_func(idx, phi))
 
     def test_find_phi_min(self):
-        phi_sym, phi_ext_sym, nu_sym, n_sym = sympy.symbols('phi phi_ext nu n')
+        phi_sym, phi_ext_sym, nu_sym, n_sym, f_J_sym = sympy.symbols('phi phi_ext nu n f_J')
         potential_param_symbols = {'phi_ext': phi_ext_sym,
                                    'nu': nu_sym,
-                                   'n': n_sym}
+                                   'n': n_sym,
+                                   'f_J': f_J_sym}
         potential_expr = -nu_sym * sympy.cos(phi_sym) - n_sym * sympy.cos((phi_ext_sym - phi_sym) / n_sym)
         n = 3
         phi_ext = 2 * np.pi * np.random.rand()
         nu = np.random.rand() * 0.9 / n
+        f_J = 7500.0
         potential_params = {'phi_ext': phi_ext,
                             'nu': nu,
-                            'n': n}
+                            'n': n,
+                            'f_J': f_J}
         self.model.set_order(1)
         self.model.set_potential(potential_expr, potential_param_symbols)
         self.model.set_potential_params(potential_params)
@@ -152,116 +165,91 @@ class TestModel(TestCase):
         self.assertAlmostEqual(self.model.g_func(1, self.model.phi_min), 0.0, places=14)
 
         x0 = n * 2 * np.pi * np.random.rand()
-        self.model.find_phi_min(x0=x0)
+        self.model.find_phi_min(phi_min_guess=x0)
         self.assertAlmostEqual(self.model.c_func(1, self.model.phi_min), 0.0, places=14)
         self.assertAlmostEqual(self.model.g_func(1, self.model.phi_min), 0.0, places=14)
 
     def test_generate_hamiltonian(self):
-        phi_sym, phi_ext_sym, nu_sym, n_sym = sympy.symbols('phi phi_ext nu n')
+        phi_sym, phi_ext_sym, nu_sym, n_sym, f_J_sym = sympy.symbols('phi phi_ext nu n f_J')
         potential_param_symbols = {'phi_ext': phi_ext_sym,
                                    'nu': nu_sym,
-                                   'n': n_sym}
+                                   'n': n_sym,
+                                   'f_J': f_J_sym}
         potential_expr = -nu_sym * sympy.cos(phi_sym) - n_sym * sympy.cos((phi_ext_sym - phi_sym) / n_sym)
         n = 3
         phi_ext = 2 * np.pi * np.random.rand()
         nu = np.random.rand() * 0.9 / n
+        f_J = 7500.0
         potential_params = {'phi_ext': phi_ext,
+                            'nu': nu,
                             'n': n,
-                            'nu': nu}
+                            'f_J': f_J}
         order = 3
 
         self.model.set_order(order)
         self.model.set_potential(potential_expr, potential_param_symbols)
         self.model.set_potential_params(potential_params)
 
-        resonator_params = {'f_a': 0.0,
-                            'f_b': 0.0,
-                            'f_d': 0.0,
-                            'f_J': 7500.0,
-                            'phi_ext': phi_ext,
-                            'nu': nu,
-                            'I_ratio_a': 0.001,
-                            'I_ratio_b': 0.001,
-                            'epsilon': 0.0001,
-                            'kappa_a': 0.0001,
-                            'kappa_b': 0.0002}
+        resonator_params_a = {'f': 1.0,
+                              'I_ratio': 0.001,
+                              'kappa': 0.0001}
+
+        resonator_params_b = {'f': 2.0,
+                              'I_ratio': 0.001,
+                              'kappa': 0.0001}
+
+        resonator_params = {'a': resonator_params_a,
+                            'b': resonator_params_b}
+
+        f_d = 1.1
+        epsilon = 0.001
+
         self.model.set_resonator_params(resonator_params)
-        self.model.set_modes()
+        self.model.set_drive_params(f_d, epsilon)
         self.model.generate_hamiltonian()
 
-    def test_generate_hamiltonian(self):
-        phi_sym, phi_ext_sym, nu_sym, n_sym = sympy.symbols('phi phi_ext nu n')
-        potential_param_symbols = {'phi_ext': phi_ext_sym,
-                                   'nu': nu_sym,
-                                   'n': n_sym}
-        potential_expr = -nu_sym * sympy.cos(phi_sym) - n_sym * sympy.cos((phi_ext_sym - phi_sym) / n_sym)
-        n = 3
-        phi_ext = 2 * np.pi * np.random.rand()
-        nu = np.random.rand() * 0.9 / n
-        potential_params = {'phi_ext': phi_ext,
-                            'n': n,
-                            'nu': nu}
-        order = 2
-
-        self.model.set_order(order)
-        self.model.set_potential(potential_expr, potential_param_symbols)
-        self.model.set_potential_params(potential_params)
-
-        resonator_params = {'f_a': 0.0,
-                            'f_b': 0.0,
-                            'f_d': 0.0,
-                            'f_J': 7500.0,
-                            'phi_ext': phi_ext,
-                            'nu': nu,
-                            'I_ratio_a': 0.001,
-                            'I_ratio_b': 0.001,
-                            'epsilon': 0.0001,
-                            'kappa_a': 0.0001,
-                            'kappa_b': 0.0002}
-
-        self.model.set_resonator_params(resonator_params)
-        self.model.set_modes()
-        self.model.generate_resonator_hamiltonian()
-        self.model.generate_potential_hamiltonian()
-
     def test_generate_eom_func(self):
-        phi_sym, phi_ext_sym, nu_sym, n_sym = sympy.symbols('phi phi_ext nu n')
+        phi_sym, phi_ext_sym, nu_sym, n_sym, f_J_sym = sympy.symbols('phi phi_ext nu n f_J')
         potential_param_symbols = {'phi_ext': phi_ext_sym,
                                    'nu': nu_sym,
-                                   'n': n_sym}
+                                   'n': n_sym,
+                                   'f_J': f_J_sym}
         potential_expr = -nu_sym * sympy.cos(phi_sym) - n_sym * sympy.cos((phi_ext_sym - phi_sym) / n_sym)
         n = 3
         phi_ext = 2 * np.pi * np.random.rand()
         nu = np.random.rand() * 0.9 / n
+        f_J = 7500.0
         potential_params = {'phi_ext': phi_ext,
+                            'nu': nu,
                             'n': n,
-                            'nu': nu}
-        order = 4
+                            'f_J': f_J}
+        order = 3
 
         self.model.set_order(order)
         self.model.set_potential(potential_expr, potential_param_symbols)
         self.model.set_potential_params(potential_params)
 
-        resonator_params = {'f_a': 0.0,
-                            'f_b': 0.0,
-                            'f_d': 0.0,
-                            'f_J': 7500.0,
-                            'phi_ext': phi_ext,
-                            'nu': nu,
-                            'I_ratio_a': 0.001,
-                            'I_ratio_b': 0.001,
-                            'epsilon': 0.0001,
-                            'kappa_a': 0.0001,
-                            'kappa_b': 0.0002}
-        modes = ['a', 'b']
+        resonator_params_a = {'f': 1.0,
+                              'I_ratio': 0.001,
+                              'kappa': 0.0001}
+
+        resonator_params_b = {'f': 2.0,
+                              'I_ratio': 0.001,
+                              'kappa': 0.0001}
+
+        resonator_params = {'a': resonator_params_a,
+                            'b': resonator_params_b}
+
+        f_d = 1.1
+        epsilon = 0.001
 
         self.model.set_resonator_params(resonator_params)
-        self.model.set_modes(modes=modes)
+        self.model.set_drive_params(f_d, epsilon)
         self.model.generate_hamiltonian()
         self.model.generate_lindblad_ops()
         self.model.generate_eom_ops()
+        self.model.generate_eom_exprs()
         self.model.generate_eom()
         x = np.array([1.0,2.0])
         output = self.model.eom(x)
-        pass
 
