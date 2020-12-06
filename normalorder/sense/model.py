@@ -125,8 +125,6 @@ class Model:
         self.mode_ops = {}
         self.c_expr = ()
         self.phi_min = None
-        self.modes = None
-        self.rotation_rates = None
         self.__g_expr = ()
         self.__max_order = 0
         self.order = 0
@@ -221,16 +219,16 @@ class Model:
             self.resonator_syms[mode_name] = syms
 
             specification = [[1] + 2 * len(params.keys()) * [0]]
-            specification[0][2 * (self.mode_numbers[mode_name] - 1)] = 1
+            specification[0][2*self.mode_numbers[mode_name]] = 1
             self.mode_ops[mode_name] = Operator(specification, modes=self.mode_names)
 
-    def set_drive_params(self, f_d, epsilon):
+    def set_drive_params(self, f_d: float, epsilon: complex):
         self.drive_params['f_d'] = f_d
         self.drive_params['epsilon'] = epsilon
         self.drive_syms = {'f_d': sympy.Symbol('f_d'),
                            'epsilon': sympy.Symbol('epsilon')}
 
-    def set_potential(self, potential_expr, potential_param_syms: dict):
+    def set_potential(self, potential_expr: sympy.Add, potential_param_syms: dict):
         """
         Supply a symbolic expression constructed with sympy to specify the potential of the inductive element. Also
         supply a list of symbols used in this expression.
@@ -349,7 +347,7 @@ class Model:
         substitutions = [(self.c_sym[m], self.c_func(m, phi)) for m in range(self.order + 2)]
         return np.float(self.g_expr_gen(m).subs(substitutions))
 
-    def find_phi_min(self, phi_min_guess=None):
+    def find_phi_min(self, phi_min_guess: float=None):
         """
         Find the value of the phase difference over the inductive element at which the potential is minimized.
 
@@ -397,15 +395,13 @@ class Model:
         -------
         None
         """
-        self.resonator_hamiltonian = 0.0
+        self.resonator_hamiltonian = 2j*sympy.pi*self.drive_syms['epsilon']*self.mode_ops[self.mode_names[0]].dag()
+        self.resonator_hamiltonian += self.resonator_hamiltonian.dag()
 
         for mode_name, mode_params in self.resonator_params.items():
             self.resonator_hamiltonian += 2 * sympy.pi * (self.resonator_syms[mode_name]['f']
                                                           - self.mode_numbers[mode_name] * self.drive_syms['f_d'])\
                                           * self.mode_ops[mode_name].dag() * self.mode_ops[mode_name]
-
-        self.resonator_hamiltonian += 2 * sympy.pi * self.drive_syms['epsilon'] \
-                                        * (self.mode_ops[self.mode_names[0]] + self.mode_ops[self.mode_names[0]].dag())
 
     def generate_hamiltonian(self):
         """
@@ -444,11 +440,11 @@ class Model:
         """
         self.eom_ops = {}
         for name, mode_op in self.mode_ops.items():
-            mode_eom_op = 1j * (self.hamiltonian * mode_op - mode_op * self.hamiltonian)
+            eom_op = 1j * (self.hamiltonian * mode_op - mode_op * self.hamiltonian)
             for mode_name, l_op in self.lindblad_ops.items():
-                mode_eom_op += l_op.dag() * mode_op * l_op - 0.5 * mode_op * l_op.dag() * l_op \
+                eom_op += l_op.dag() * mode_op * l_op - 0.5 * mode_op * l_op.dag() * l_op \
                                  - 0.5 * l_op.dag() * l_op * mode_op
-            self.eom_ops[name] = mode_eom_op
+            self.eom_ops[name] = eom_op
 
     def generate_eom_exprs(self):
         """
