@@ -126,7 +126,7 @@ class Model:
         self.c_expr = ()
         self.phi_min = None
         self.modes = None
-        self.rotation_factors = None
+        self.rotation_rates = None
         self.__g_expr = ()
         self.__max_order = 0
         self.order = 0
@@ -139,6 +139,18 @@ class Model:
         self.eom = None
 
     def set_order(self, order: int):
+        """
+        Set the order of the Taylor expansion which approximates the potential close to its minimum.
+
+        Parameters
+        ----------
+        order : int
+        The Taylor expansion will be carried out up to and including the supplied order.
+
+        Returns
+        -------
+        None
+        """
         if order < 0:
             raise Exception('The order must be non-negative integer.')
         c_sym, g_expr = g_expr_gen(order=max(self.__max_order, order))
@@ -148,35 +160,105 @@ class Model:
         self.__g_expr = g_expr[:order+1]
         self.g_sym = symbols(' '.join(['g_' + str(i) for i in range(self.order + 1)]))
 
-    def g_expr_gen(self, m):
+    def g_expr_gen(self, m: int):
+        """
+        Generate a coefficient, g_m, of the Taylor expansion of the potential as a function of the current.
+
+        Parameters
+        ----------
+        m : int
+        The function will generate the mth coefficient.
+
+        Returns
+        -------
+        g_m : sympy.Add
+        The mth g coefficient of the Taylor expansion.
+        """
         if m > self.order:
             raise Exception('Requested g expression is higher than the order of the model.')
         else:
             return self.__g_expr[m]
 
-    def set_resonator_params(self, params):
+    def set_resonator_params(self, params: dict):
+        """
+        Set the parameters of the resonator.
+
+        Parameters
+        ----------
+        params : dict
+        A dictionary of resonator parameters.
+
+        Returns
+        -------
+        None
+        """
         self.resonator_params = params
 
-    def set_resonator_syms(self, syms):
+    def set_resonator_syms(self, syms: list or tuple):
         self.resonator_syms = {}
         for sym in syms:
             self.resonator_syms[sym] = sympy.Symbol(sym)
 
     def set_potential(self, potential_expr, potential_param_symbols):
-        self.potential_syms = potential_param_symbols
+        """
+        Supply a symbolic expression constructed with sympy to specify the potential of the inductive element. Also
+        supply a list of symbols used in this expression.
+
+        Parameters
+        ----------
+        potential_expr : sympy.Add
+        The potential expression constructed with sympy.
+
+        potential_param_symbols : iterable
+        An iterable of symbols used to construct the potential expression.
+
+        Returns
+        -------
+        None
+        """
+        self.potential_syms = tuple(potential_param_symbols)
         self.potential_expr = potential_expr
         self.c_expr = tuple(self.c_expr_gen(m) for m in range(self.order + 2))
 
-    def set_potential_params(self, params):
+    def set_potential_params(self, params: dict):
+        """
+        Supply the values of the parameters which specify the form of the potential and find the minimum of that
+        potential.
+
+        Parameters
+        ----------
+        params : dict
+        A dictionary of potential parameter values.
+
+        Returns
+        -------
+        None
+        """
         self.potential_params = params
         self.potential_param_substitutions = [(self.potential_syms[key], self.potential_params[key])
                                               for key in self.potential_syms.keys()]
         self.find_phi_min()
 
-    def c_expr_gen(self, m):
+    def c_expr_gen(self, m: int):
+        """
+        Generate a sympy expression describing a coefficient of the Taylor series of the potential in terms of the phase
+        difference across the inductive element by calculating derivatives of the potential. This coefficient will be
+        given as a function of the potential parameters and the phase difference about which Taylor expansion is carried
+        out.
+
+        Parameters
+        ----------
+        m : int
+        The index of the coefficient to be generated.
+
+        Returns
+        -------
+        c_m : sympy.Add
+        A sympy expression describing the mth coefficient of the Taylor expansion.
+        """
         return diff(self.potential_expr, phi_sym, m) / (special.factorial(m))
 
-    def c_func(self, m, phi):
+    def c_func(self, m: int, phi: float):
         substitutions = self.potential_param_substitutions + [(phi_sym, phi)]
         c_value = np.float(self.c_expr[m].subs(substitutions).evalf())
         return c_value
@@ -200,15 +282,33 @@ class Model:
         res = optimize.root(wrapper, x0, tol=0)
         self.phi_min = res.x[0]
 
-    def set_modes(self, modes=None, rotation_factors=None):
+    def set_modes(self, modes=None, rotation_rates=None):
+        """
+        Set the names of the resonator modes and set the rotation rates which will be used to transform these modes to a
+        rotating frame. Each mode will be rotated at the specified rotation rate multiplied by the drive frequency.
+
+        Parameters
+        ----------
+        modes : iterable, optional
+        The names of the resonator modes. The default is a single mode named 'a'.
+
+        rotation_rates : iterable, optional
+        The rotation rates of the modes. Each mode will be rotated at the drive frequency multiplied by the supplied
+        rotation rate. The default is for each mode to have a rotation rate equal to its index + 1 i.e. modes
+        ['a', 'b', 'c', ...] will have rotation rates [1, 2, 3, ...].
+
+        Returns
+        -------
+        None
+        """
         if modes is None:
             self.modes = tuple('a')
         else:
-            self.modes = modes
-        if rotation_factors is None:
-            self.rotation_factors = tuple(1 + np.arange(len(self.modes)))
+            self.modes = tuple(modes)
+        if rotation_rates is None:
+            self.rotation_rates = tuple(1 + np.arange(len(self.modes)))
         else:
-            self.rotation_factors = rotation_factors
+            self.rotation_rates = rotation_rates
         annihilation_ops = []
         for idx in range(len(self.modes)):
             specification = [[1] + 2 * len(self.modes) * [0]]
@@ -228,7 +328,7 @@ class Model:
     def generate_resonator_hamiltonian(self):
         self.resonator_hamiltonian = 0.0
 
-        for factor, mode, op in zip(self.rotation_factors, self.modes, self.annihilation_ops):
+        for factor, mode, op in zip(self.rotation_rates, self.modes, self.annihilation_ops):
             self.resonator_hamiltonian += 2 * sympy.pi * (self.resonator_syms['f_' + mode]
                                                        - factor * self.resonator_syms['f_d']) * op.dag() * op
         self.resonator_hamiltonian += 2 * sympy.pi * self.resonator_syms['epsilon'] \
@@ -292,19 +392,21 @@ class Model:
         out = np.float(Dphimin_Dparam_expr.evalf(subs=substitutions_dict))
         return out
 
-    def Dg_Dparam_func(self, m, phi, param):
-        substitutions = [(self.c_sym[m], self.c_func(m, phi)) for m in range(self.order + 2)]
-        return diff(self.g_expr_gen(m).subs(substitutions), self.potential_syms[param])
+    def generate_Dg_Dphi_expr(self, m, param_sym):
+        substitutions = [(self.c_sym[m], self.c_expr_gen(m)) for m in range(self.order + 2)]
+        return diff(self.g_expr_gen(m).subs(substitutions), phi_sym)
 
-
-def Dg_Dphiext_expr_gen(m):
-    Dg_Dphiext = diff(g_expr[m],phi_sym)*Dphimin_Dphiext_expr + diff(g_expr[m],phi_ext_sym)
-    return Dg_Dphiext
-
-def Dg_Dphiext_func(m,phi,phi_ext,nu):
-    Dg_Dphiext_expr = Dg_Dphiext_expr_gen(m)
-    out = np.float(Dg_Dphiext_expr.subs([(phi_ext_sym,phi_ext),(phi_sym,phi),(nu_sym,nu)]).evalf())
-    return out
+    def Dg_at_phimin_Dparam_func(self, m, param):
+        substitutions = [(self.c_sym[m], self.c_expr_gen(m)) for m in range(self.order + 2)]
+        expr = diff(self.g_expr_gen(m), phi_sym)*self.Dphimin_Dparam_func(param) \
+               + diff(self.g_expr_gen(m), self.potential_syms[param])
+        potential_substitutions = self.potential_param_substitutions
+        #resonator_substitutions = [(self.resonator_syms[key], self.resonator_params[key]) for key in
+        #                           self.resonator_syms.keys()]
+        substitutions = potential_substitutions #+ resonator_substitutions
+        substitutions_dict = {sym: value for sym, value in substitutions}
+        out = expr.evalf(subs=substitutions_dict)
+        return np.float(out)
 
 
 def convert_op_to_expr(op):
