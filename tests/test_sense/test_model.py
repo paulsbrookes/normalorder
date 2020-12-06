@@ -28,8 +28,8 @@ class TestModel(TestCase):
     def test_c_and_g_expr_gen(self):
         phi_sym, phi_ext_sym, nu_sym, n_sym = sympy.symbols('phi phi_ext nu n')
         potential_param_syms = {'phi_ext': phi_ext_sym,
-                                   'nu': nu_sym,
-                                   'n': n_sym}
+                                'nu': nu_sym,
+                                'n': n_sym}
         potential_expr = -nu_sym * sympy.cos(phi_sym) - n_sym * sympy.cos((phi_ext_sym - phi_sym) / n_sym)
         n = 3
         phi_ext = 2 * np.pi * np.random.rand()
@@ -250,6 +250,35 @@ class TestModel(TestCase):
         self.model.generate_eom_ops()
         self.model.generate_eom_exprs()
         self.model.generate_eom()
-        x = np.array([1.0,2.0])
+        x = np.array([1.0, 2.0])
         output = self.model.eom(x)
+
+        self.model.generate_eom(potential_variables=['phi_ext'])
+        x = np.array([1.0, 2.0])
+        delta_phi_ext = 0.0
+        output = self.model.eom(x,delta_phi_ext)
+
+
+    def test_Dphimin_Dparam_func(self):
+        phi_sym, phi_ext_sym, nu_sym, n_sym, f_J_sym = sympy.symbols('phi phi_ext nu n f_J')
+        potential_param_symbols = {'phi_ext': phi_ext_sym,
+                                   'nu': nu_sym,
+                                   'n': n_sym,
+                                   'f_J': f_J_sym}
+        potential_expr = -nu_sym * sympy.cos(phi_sym) - n_sym * sympy.cos((phi_ext_sym - phi_sym) / n_sym)
+        n = 3
+        phi_ext = 2 * np.pi * np.random.rand()
+        nu = np.random.rand() * 0.9 / n
+        f_J = 7500.0
+        potential_params = {'phi_ext': phi_ext,
+                            'nu': nu,
+                            'n': n,
+                            'f_J': f_J}
+        order = 3
+
+        self.model.set_order(order)
+        self.model.set_potential(potential_expr, potential_param_symbols)
+        self.model.set_potential_params(potential_params)
+        self.model.Dphimin_Dparam_func('phi_ext')
+        self.model.Dg_at_phimin_Dparam_func(3, 'phi_ext')
 

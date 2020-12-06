@@ -184,7 +184,7 @@ class Model:
         else:
             return self.__g_expr[m]
 
-    def set_resonator_params(self, params: dict, mode_numbers: dict = None):
+    def set_resonator_params(self, params: dict, mode_numbers: dict=None):
         """
         Set the parameters of the resonator.
 
@@ -472,7 +472,7 @@ class Model:
     def generate_g_substitutions(self):
         self.g_substitutions = [(g_sym, self.g_func(m, self.phi_min)) for m, g_sym in enumerate(self.g_sym)]
 
-    def generate_eom(self):
+    def generate_eom(self, potential_variables: list=[]):
         """
         Convert the sympy expressions describing the equations of motion of the fields into equations of motion which
         are suitable for numerical integration.
@@ -486,16 +486,28 @@ class Model:
         self.generate_param_substitutions()
         combined_substitutions = self.g_substitutions + self.param_substitutions
         field_syms = [sympy.Symbol(mode_name) for mode_name in self.mode_names]
+        arg_syms = [sympy.Symbol('delta_'+sym_name) for sym_name in potential_variables]
+        combined_syms = field_syms + arg_syms
 
         for mode_name, eom_expr in self.eom_exprs.items():
+            combined_eom_expr = eom_expr
+            for arg_sym, sym_name in zip(arg_syms, potential_variables):
+                derivative_subs = [(g_sym, self.Dg_at_phimin_Dparam_func(m, sym_name))
+                                   for m, g_sym in enumerate(self.g_sym)]
+                combined_eom_expr += arg_sym * eom_expr.subs(derivative_subs)
             for pair in combined_substitutions:
-                eom_expr = eom_expr.replace(*pair)
-            eom_func = sympy.lambdify(field_syms, eom_expr)
+                combined_eom_expr = combined_eom_expr.replace(*pair)
+            eom_func = sympy.lambdify(combined_syms, combined_eom_expr)
             eom_funcs[mode_name] = eom_func
 
-        def eom(fields):
-            Dfields = np.array([eom_funcs[mode_name](*fields) for mode_name in self.mode_names])
-            return Dfields
+        if len(potential_variables) == 0:
+            def eom(fields):
+                Dfields = np.array([eom_funcs[mode_name](*fields) for mode_name in self.mode_names])
+                return Dfields
+        else:
+            def eom(fields, *args):
+                Dfields = np.array([eom_funcs[mode_name](*fields, *args) for mode_name in self.mode_names])
+                return Dfields
         self.eom = eom
 
     def Dphimin_Dparam_func(self, param):
@@ -505,21 +517,15 @@ class Model:
         out = np.float(Dphimin_Dparam_expr.evalf(subs=substitutions_dict))
         return out
 
-    def generate_Dg_Dphi_expr(self, m, param_sym):
-        substitutions = [(self.c_sym[m], self.c_expr_gen(m)) for m in range(self.order + 2)]
-        return diff(self.g_expr_gen(m).subs(substitutions), phi_sym)
-
     def Dg_at_phimin_Dparam_func(self, m, param):
-        substitutions = [(self.c_sym[m], self.c_expr_gen(m)) for m in range(self.order + 2)]
-        expr = diff(self.g_expr_gen(m), phi_sym)*self.Dphimin_Dparam_func(param) \
-               + diff(self.g_expr_gen(m), self.potential_syms[param])
-        potential_substitutions = self.potential_param_substitutions
-        #resonator_substitutions = [(self.resonator_syms[key], self.resonator_params[key]) for key in
-        #                           self.resonator_syms.keys()]
-        substitutions = potential_substitutions #+ resonator_substitutions
-        substitutions_dict = {sym: value for sym, value in substitutions}
+        c_substitutions = [(self.c_sym[m], self.c_expr_gen(m)) for m in range(self.order + 2)]
+        g_m = self.g_expr_gen(m).subs(c_substitutions)
+        expr = diff(g_m, phi_sym)*self.Dphimin_Dparam_func(param) + diff(g_m, self.potential_syms[param])
+        substitutions_dict = {sym: value for sym, value in self.potential_param_substitutions}
+        substitutions_dict[phi_sym] = self.phi_min
         out = expr.evalf(subs=substitutions_dict)
         return np.float(out)
+
 
 
 def package_substitutions(syms, params):
