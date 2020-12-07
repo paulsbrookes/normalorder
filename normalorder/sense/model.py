@@ -426,7 +426,7 @@ class Model:
         """
         self.lindblad_ops = {}
         for name, syms in self.resonator_syms.items():
-            decay_rate = sympy.sqrt(syms['kappa'])
+            decay_rate = sympy.sqrt(2*sympy.pi*syms['kappa'])
             self.lindblad_ops[name] = decay_rate*self.mode_ops[name]
 
     def generate_eom_ops(self):
