@@ -23,7 +23,7 @@ class TestModel(TestCase):
             self.assertIsInstance(self.model.c_sym, tuple)
             self.assertEqual(len(self.model.c_sym), order + 2)
             for m in range(order + 1):
-                self.assertIsNotNone(self.model.g_expr_gen(m))
+                self.assertIsNotNone(self.model.generate_g_expr(m))
 
     def test_c_and_g_expr_gen(self):
         phi_sym, phi_ext_sym, nu_sym, n_sym = sympy.symbols('phi phi_ext nu n')
@@ -257,7 +257,6 @@ class TestModel(TestCase):
         x = np.array([1.0, 2.0])
         delta_phi_ext = 0.0
         output = self.model.eom(x,delta_phi_ext)
-
 
     def test_Dphimin_Dparam_func(self):
         phi_sym, phi_ext_sym, nu_sym, n_sym, f_J_sym = sympy.symbols('phi phi_ext nu n f_J')

@@ -8,6 +8,7 @@ import copy
 
 phi_sym = symbols('phi')
 
+
 def apply_rwa(operator, mode_frequencies=None):
     if mode_frequencies is None:
         mode_frequencies = {}
@@ -19,6 +20,7 @@ def apply_rwa(operator, mode_frequencies=None):
     mask = np.isclose(net_frequencies, 0.0)
     operator_rwa = Operator(operator.data.iloc[mask], modes=operator.modes)
     return operator_rwa
+
 
 def solve_sum(coeffs, target):
     if len(coeffs) == 0:
@@ -165,7 +167,7 @@ class Model:
         self.__g_expr = g_expr[:order+1]
         self.g_sym = symbols(' '.join(['g_' + str(i) for i in range(self.order + 1)]))
 
-    def g_expr_gen(self, m: int):
+    def generate_g_expr(self, m: int):
         """
         Generate a coefficient, g_m, of the Taylor expansion of the potential as a function of the current.
 
@@ -247,7 +249,7 @@ class Model:
         """
         self.potential_syms = potential_param_syms
         self.potential_expr = potential_expr
-        self.c_expr = tuple(self.c_expr_gen(m) for m in range(self.order + 2))
+        self.c_expr = tuple(self.generate_c_expr(m) for m in range(self.order + 2))
 
     def set_potential_params(self, params: dict):
         """
@@ -268,7 +270,7 @@ class Model:
                                               for key in self.potential_syms.keys()]
         self.find_phi_min()
 
-    def c_expr_gen(self, m: int):
+    def generate_c_expr(self, m: int):
         """
         Generate a sympy expression describing a coefficient of the Taylor series of the potential in terms of the phase
         difference across the inductive element by calculating derivatives of the potential. This coefficient will be
@@ -345,7 +347,7 @@ class Model:
         The numerical value of the mth coefficient of the Taylor expansion around phi.
         """
         substitutions = [(self.c_sym[m], self.c_func(m, phi)) for m in range(self.order + 2)]
-        return np.float(self.g_expr_gen(m).subs(substitutions))
+        return np.float(self.generate_g_expr(m).subs(substitutions))
 
     def find_phi_min(self, phi_min_guess: float=None):
         """
@@ -511,15 +513,15 @@ class Model:
         self.eom = eom
 
     def Dphimin_Dparam_func(self, param):
-        Dphimin_Dparam_expr = - diff(self.c_expr_gen(1), self.potential_syms[param])/diff(self.c_expr_gen(1), phi_sym)
+        Dphimin_Dparam_expr = - diff(self.generate_c_expr(1), self.potential_syms[param]) / diff(self.generate_c_expr(1), phi_sym)
         substitutions = self.potential_param_substitutions + [(phi_sym, self.phi_min)]
         substitutions_dict = {sym: value for sym, value in substitutions}
         out = np.float(Dphimin_Dparam_expr.evalf(subs=substitutions_dict))
         return out
 
     def Dg_at_phimin_Dparam_func(self, m, param):
-        c_substitutions = [(self.c_sym[m], self.c_expr_gen(m)) for m in range(self.order + 2)]
-        g_m = self.g_expr_gen(m).subs(c_substitutions)
+        c_substitutions = [(self.c_sym[m], self.generate_c_expr(m)) for m in range(self.order + 2)]
+        g_m = self.generate_g_expr(m).subs(c_substitutions)
         expr = diff(g_m, phi_sym)*self.Dphimin_Dparam_func(param) + diff(g_m, self.potential_syms[param])
         substitutions_dict = {sym: value for sym, value in self.potential_param_substitutions}
         substitutions_dict[phi_sym] = self.phi_min
