@@ -113,10 +113,6 @@ def gen_delta_pow_series(exponent, order, potential_coeffs, x_sym):
         return delta_pow_series
 
 
-
-
-
-
 class Model:
 
     def __init__(self):
@@ -190,25 +186,7 @@ class Model:
         else:
             return self.__g_expr[m]
 
-    def set_resonator_params(self, params: dict):
-        """
-        Set the parameters of the resonator.
-
-        Parameters
-        ----------
-        params : dict
-        A dictionary of resonator parameters. The keys should be the mode names and each item should be a dictionary of
-        the parameters of the corresponding mode.
-
-        Returns
-        -------
-        None
-        """
-        if 'l' not in params.keys():
-            params['l'] = 0.5
-        self.resonator_params = params
-
-    def set_resonator_params_backup(self, params: dict, mode_numbers: dict=None):
+    def set_resonator_params(self, params: dict, mode_numbers: dict=None):
         """
         Set the parameters of the resonator.
 

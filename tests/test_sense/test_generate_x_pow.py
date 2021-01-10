@@ -1,5 +1,5 @@
 from unittest import TestCase
-from normalorder.sense.model import generate_x_pow
+from normalorder.sense.model_current import generate_x_pow
 import sympy
 from copy import deepcopy
 
