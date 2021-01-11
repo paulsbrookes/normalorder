@@ -79,3 +79,11 @@ class Mode:
              * calc_u_r(x, self.k, self.params['l'], self.phi_o)
         u *= self.A
         return u
+
+    def plot(self, ax=None):
+        if ax is None:
+            fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+        x_array = np.linspace(-self.params['l'], self.params['l'], 201)
+        u_series = pd.Series(self.calc_u(x_array), index=x_array)
+        u_series.plot(ax=ax)
+        return ax

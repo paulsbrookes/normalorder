@@ -119,6 +119,12 @@ class Operator:
             output_operator = output_operator * self
         return output_operator
 
+    def __hash__(self):
+        h0 = hash(self.data.values.tobytes())
+        h1 = hash(''.join(self.data.columns))
+        h = h0 + h1
+        return h
+
     def copy(self):
         return Operator(self.data.copy())
 

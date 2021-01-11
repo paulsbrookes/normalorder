@@ -4,9 +4,10 @@ from scipy import special, optimize
 import numpy as np
 import functools
 from normalorder.operator.boson import Operator
+from .mode import Mode
 import copy
 
-phi_sym = symbols('phi')
+delta_sym = symbols('delta')
 
 
 def apply_rwa(operator, mode_frequencies=None):
@@ -130,7 +131,7 @@ class Model:
         self.potential_param_substitutions = []
         self.mode_ops = {}
         self.c_expr = ()
-        self.phi_min = None
+        self.delta_min = None
         self.__g_expr = ()
         self.__max_order = 0
         self.order = 0
@@ -148,6 +149,9 @@ class Model:
         self.param_substitutions = []
         self.g_substitutions = []
         self.mode_names = ()
+        self.modes = dict()
+        self.mode_frequencies = {}
+        self.delta = 0
 
     def set_order(self, order: int):
         """
@@ -190,61 +194,67 @@ class Model:
         else:
             return self.__g_expr[m]
 
-    def set_resonator_params(self, params: dict):
+    def set_resonator_params(self, l: float=0.5, L_0: float=1.0, C_0: float=1.0, x_J: float=0.0):
         """
         Set the parameters of the resonator.
 
         Parameters
         ----------
-        params : dict
-        A dictionary of resonator parameters. The keys should be the mode names and each item should be a dictionary of
-        the parameters of the corresponding mode.
+        l : float
+        Half he length of the resonator.
+
+        L_0 : float
+        The inductance per unit length of the resonator.
+
+        C_0 : float
+        The capacitance per unit length of the resonator.
+
+        x_J : The position of the inductive circuit in the resonator.
 
         Returns
         -------
         None
         """
-        if 'l' not in params.keys():
-            params['l'] = 0.5
-        self.resonator_params = params
+        self.resonator_params['l'] = l
+        self.resonator_params['L_0'] = L_0
+        self.resonator_params['C_0'] = C_0
+        self.resonator_params['x_J'] = x_J
 
-    def set_resonator_params_backup(self, params: dict, mode_numbers: dict=None):
-        """
-        Set the parameters of the resonator.
+    def set_modes(self, names: list=['a'], indices=None, initial_wavevectors=None):
 
-        Parameters
-        ----------
-        params : dict
-        A dictionary of resonator parameters. The keys should be the mode names and each item should be a dictionary of
-        the parameters of the corresponding mode.
+        if indices is None:
+            indices = np.arange(1, len(names)+1)
+        if initial_wavevectors is None:
+            initial_wavevectors = indices*np.pi/(2*self.resonator_params['l'])
+        self.modes = dict()
+        velocity = 1/np.sqrt(self.resonator_params['C_0']*self.resonator_params['L_0'])
 
-        mode_numbers : dict
-        A dictionary of mode numbers. The keys should be the mode names and the items should be the numbers of each
-        mode, i.e. mode_numbers = {'a': 1, 'b': 2} specifies that mode a is the 1st harmonic and mode b is the second
-        harmonic.
-
-        Returns
-        -------
-        None
-        """
+        self.mode_numbers = {name: idx for name, idx in zip(names, indices)}
+        self.mode_names = names
         self.mode_ops = {}
-        self.mode_names = sorted(params.keys())
+        self.delta = 0.0
+        C_total = 2 * self.resonator_params['l'] * self.resonator_params['C_0']
 
-        self.resonator_params = params
-        if mode_numbers is None:
-            self.mode_numbers = {mode_name: idx+1 for idx, mode_name in enumerate(sorted(params.keys()))}
+        for name, index, k_init in zip(names, indices, initial_wavevectors):
+            mode = Mode()
+            mode.set_params(self.resonator_params)
+            mode.solve(k_init)
+            self.modes[name] = mode
+            mode_frequency = mode.k*velocity
+            self.mode_frequencies[name] = mode_frequency
 
-        self.resonator_syms = {}
-        for mode_name, mode_params in params.items():
-            syms = {}
-            for sym_name in mode_params.keys():
-                sym_name_full = sym_name + '_' + mode_name
-                syms[sym_name] = sympy.Symbol(sym_name_full)
-            self.resonator_syms[mode_name] = syms
+            specification = [[1] + 2 * len(names) * [0]]
+            specification[0][2*self.mode_numbers[name]] = 1
+            op = Operator(specification, modes=self.mode_names)
+            self.mode_ops[name] = op
+            if not np.isclose(mode.Delta**2,0.0):
+                C_prime = C_total/mode.Delta**2
+                self.delta += np.sqrt(1/(2*mode_frequency*C_prime))*(op+op.dag())
 
-            specification = [[1] + 2 * len(params.keys()) * [0]]
-            specification[0][2*self.mode_numbers[mode_name]] = 1
-            self.mode_ops[mode_name] = Operator(specification, modes=self.mode_names)
+        wavevectors = np.array([mode.k for mode in self.modes.values()])
+        if len(set(np.round(wavevectors,10))) < len(names):
+            raise Exception('Some of the calculated wavevectors are not unique. '
+                            'Try different initial guesses to identify unique modes.')
 
     def set_drive_params(self, f_d: float, epsilon: complex):
         self.drive_params['f_d'] = f_d
@@ -290,7 +300,17 @@ class Model:
         self.potential_params = params
         self.potential_param_substitutions = [(self.potential_syms[key], self.potential_params[key])
                                               for key in self.potential_syms.keys()]
-        self.find_phi_min()
+        self.find_delta_min()
+
+        substitutions = [(delta_sym, self.delta_min)]
+        for name in self.potential_syms.keys():
+            pair = (self.potential_syms[name], self.potential_params[name])
+            substitutions.append(pair)
+
+        c_2_at_min = self.c_expr[2].subs(substitutions)
+        L_J = 1/(4*np.pi*self.potential_params['f_J']*c_2_at_min)
+        L_J = np.float(L_J.evalf())
+        self.resonator_params['L_J'] = L_J
 
     def generate_c_expr(self, m: int):
         """
@@ -309,7 +329,7 @@ class Model:
         c_m : sympy.Add
         A sympy expression describing the mth coefficient of the Taylor expansion.
         """
-        return diff(self.potential_expr, phi_sym, m) / (special.factorial(m))
+        return diff(self.potential_expr, delta_sym, m) / (special.factorial(m))
 
     def c_func(self, m: int, phi: float):
         """
@@ -329,7 +349,7 @@ class Model:
         c_m : float
         The value of the specified coefficient at the given phase difference.
         """
-        substitutions = self.potential_param_substitutions + [(phi_sym, phi)]
+        substitutions = self.potential_param_substitutions + [(delta_sym, phi)]
         c_value = np.float(self.c_expr[m].subs(substitutions).evalf())
         return c_value
 
@@ -346,7 +366,7 @@ class Model:
         -------
         None
         """
-        substitutions = self.potential_param_substitutions + [(phi_sym, phi)]
+        substitutions = self.potential_param_substitutions + [(delta_sym, phi)]
         potential = np.float(self.potential_expr.subs(substitutions).evalf())
         return potential
 
@@ -371,13 +391,13 @@ class Model:
         substitutions = [(self.c_sym[m], self.c_func(m, phi)) for m in range(self.order + 2)]
         return np.float(self.generate_g_expr(m).subs(substitutions))
 
-    def find_phi_min(self, phi_min_guess: float=None):
+    def find_delta_min(self, delta_min_guess: float=None):
         """
         Find the value of the phase difference over the inductive element at which the potential is minimized.
 
         Parameters
         ----------
-        phi_min_guess : float, optional
+        delta_min_guess : float, optional
         Initial guess for the minimum of the potential.
 
         Returns
@@ -387,12 +407,12 @@ class Model:
         def wrapper(x):
             return self.c_func(1, x[0])
 
-        if phi_min_guess is None:
-            phi_min_guess = 2 * np.pi * 3 * np.random.rand()
-        elif isinstance(phi_min_guess, float):
-            phi_min_guess = np.array([phi_min_guess])
-        res = optimize.root(wrapper, phi_min_guess, tol=0)
-        self.phi_min = res.x[0]
+        if delta_min_guess is None:
+            delta_min_guess = 2 * np.pi * 3 * np.random.rand()
+        elif isinstance(delta_min_guess, float):
+            delta_min_guess = np.array([delta_min_guess])
+        res = optimize.root(wrapper, delta_min_guess, tol=0)
+        self.delta_min = res.x[0]
 
     def generate_potential_hamiltonian(self):
         """
@@ -404,12 +424,12 @@ class Model:
         None
         """
         self.potential_hamiltonian = 0.0
-        mode_coeffs = tuple(self.resonator_syms[mode_name]['I_ratio'] for mode_name in self.mode_names)
 
-        for m in range(0, self.order + 1):
-            x_pow = generate_x_pow(m, mode_coeffs=mode_coeffs)
-            self.potential_hamiltonian += 2 * sympy.pi * self.potential_syms['f_J'] * self.g_sym[m] * x_pow
-        self.potential_hamiltonian = apply_rwa(self.potential_hamiltonian)
+        for m in range(3, self.order + 1):
+            self.potential_hamiltonian += 2 * sympy.pi * self.potential_syms['f_J'] \
+                                          * self.c_expr[m].subs(delta_sym, self.delta_min)\
+                                          * generate_op_pow(m, self.delta)
+        self.potential_hamiltonian = apply_rwa(self.potential_hamiltonian, mode_frequencies=self.mode_numbers)
 
     def generate_resonator_hamiltonian(self):
         """
@@ -422,10 +442,10 @@ class Model:
         self.resonator_hamiltonian = 2j*sympy.pi*self.drive_syms['epsilon']*self.mode_ops[self.mode_names[0]].dag()
         self.resonator_hamiltonian += self.resonator_hamiltonian.dag()
 
-        for mode_name, mode_params in self.resonator_params.items():
-            self.resonator_hamiltonian += 2 * sympy.pi * (self.resonator_syms[mode_name]['f']
-                                                          - self.mode_numbers[mode_name] * self.drive_syms['f_d'])\
-                                          * self.mode_ops[mode_name].dag() * self.mode_ops[mode_name]
+        for name in self.mode_names:
+            self.resonator_hamiltonian += 2*sympy.pi*(self.mode_frequencies[name] -
+                                                      self.mode_numbers[name] * self.drive_syms['f_d']) \
+                                          * self.mode_ops[name].dag() * self.mode_ops[name]
 
     def generate_hamiltonian(self):
         """
@@ -494,7 +514,7 @@ class Model:
         self.param_substitutions = substitutions
 
     def generate_g_substitutions(self):
-        self.g_substitutions = [(g_sym, self.g_func(m, self.phi_min)) for m, g_sym in enumerate(self.g_sym)]
+        self.g_substitutions = [(g_sym, self.g_func(m, self.delta_min)) for m, g_sym in enumerate(self.g_sym)]
 
     def generate_eom(self, potential_variables: list=[]):
         """
@@ -582,16 +602,9 @@ def convert_op_to_expr(op, return_syms=False):
 
 
 @functools.lru_cache(maxsize=64)
-def generate_x_pow(exponent: int, mode_coeffs=(1,)):
-    n_modes = len(mode_coeffs)
+def generate_op_pow(exponent: int, operator):
     if exponent > 0:
-        annihilation_ops = []
-        for idx in range(n_modes):
-            ledger = [[mode_coeffs[idx]] + [0, 0]*n_modes]
-            ledger[0][2*(idx+1)] = 1
-            annihilation_ops.append(Operator(ledger))
-        x = sum(op+op.dag() for op in annihilation_ops)
-        return copy.deepcopy(x * generate_x_pow(exponent - 1, mode_coeffs=mode_coeffs))
+        return copy.deepcopy(operator * generate_op_pow(exponent - 1, operator))
     else:
         return 1
 
