@@ -129,7 +129,6 @@ class Model:
         self.potential_syms = {}
         self.potential_params = {}
         self.potential_param_substitutions = []
-        self.mode_ops = {}
         self.c_expr = ()
         self.delta_min = None
         self.__g_expr = ()
@@ -143,14 +142,17 @@ class Model:
         self.eom_exprs = {}
         self.set_order(self.order)
         self.eom = None
-        self.mode_numbers = {}
         self.drive_params = {}
         self.drive_syms = {}
         self.param_substitutions = []
         self.g_substitutions = []
         self.mode_names = ()
-        self.modes = dict()
+        self.modes = {}
         self.mode_frequencies = {}
+        self.mode_ops = {}
+        self.mode_numbers = {}
+        self.decay_rates = {}
+        self.decay_rate_syms = {}
         self.delta = 0
 
     def set_order(self, order: int):
@@ -233,6 +235,8 @@ class Model:
         self.mode_names = names
         self.mode_ops = {}
         self.delta = 0.0
+        self.decay_rates = {}
+        self.decay_rate_syms = {}
         C_total = 2 * self.resonator_params['l'] * self.resonator_params['C_0']
 
         for name, index, k_init in zip(names, indices, initial_wavevectors):
@@ -251,10 +255,16 @@ class Model:
                 C_prime = C_total/mode.Delta**2
                 self.delta += np.sqrt(1/(2*mode_frequency*C_prime))*(op+op.dag())
 
+            self.decay_rate_syms[name] = sympy.symbols('kappa_'+name)
+            self.decay_rates[name] = None
+
         wavevectors = np.array([mode.k for mode in self.modes.values()])
         if len(set(np.round(wavevectors,10))) < len(names):
             raise Exception('Some of the calculated wavevectors are not unique. '
                             'Try different initial guesses to identify unique modes.')
+
+    def set_decay_rates(self, decay_rates):
+        self.decay_rates = decay_rates
 
     def set_drive_params(self, f_d: float, epsilon: complex):
         self.drive_params['f_d'] = f_d
@@ -331,7 +341,7 @@ class Model:
         """
         return diff(self.potential_expr, delta_sym, m) / (special.factorial(m))
 
-    def c_func(self, m: int, phi: float):
+    def c_func(self, m: int, delta: float):
         """
         Calculate the numerical value of a coefficient of the Taylor expansion of the potential in terms of the phase
         difference across the inductive element.
@@ -349,7 +359,7 @@ class Model:
         c_m : float
         The value of the specified coefficient at the given phase difference.
         """
-        substitutions = self.potential_param_substitutions + [(delta_sym, phi)]
+        substitutions = self.potential_param_substitutions + [(delta_sym, delta)]
         c_value = np.float(self.c_expr[m].subs(substitutions).evalf())
         return c_value
 
@@ -426,9 +436,8 @@ class Model:
         self.potential_hamiltonian = 0.0
 
         for m in range(3, self.order + 1):
-            self.potential_hamiltonian += 2 * sympy.pi * self.potential_syms['f_J'] \
-                                          * self.c_expr[m].subs(delta_sym, self.delta_min)\
-                                          * generate_op_pow(m, self.delta)
+            self.potential_hamiltonian += 2 * np.pi * self.potential_syms['f_J'] \
+                                          * self.c_expr[m] * generate_op_pow(m, self.delta)
         self.potential_hamiltonian = apply_rwa(self.potential_hamiltonian, mode_frequencies=self.mode_numbers)
 
     def generate_resonator_hamiltonian(self):
@@ -469,13 +478,12 @@ class Model:
         None
         """
         self.lindblad_ops = {}
-        for name, syms in self.resonator_syms.items():
-            decay_rate = sympy.sqrt(2*sympy.pi*syms['kappa'])
-            self.lindblad_ops[name] = decay_rate*self.mode_ops[name]
+        for name, op in self.mode_ops.items():
+            self.lindblad_ops[name] = sympy.sqrt(2*sympy.pi*self.decay_rate_syms[name])*op
 
     def generate_eom_ops(self):
         """
-        Generate the operators which represent the Hesienberg equations of motion of the annihilation operators of the
+        Generate the operators which represent the Heisenberg equations of motion of the annihilation operators of the
         resonator modes.
 
         Returns
@@ -506,8 +514,9 @@ class Model:
 
     def generate_param_substitutions(self):
         substitutions = []
-        for mode_name in self.mode_names:
-            substitutions += package_substitutions(self.resonator_syms[mode_name], self.resonator_params[mode_name])
+        for name in self.mode_names:
+            substitutions.append((self.decay_rate_syms[name], self.decay_rates[name]))
+            #substitutions += package_substitutions(self.resonator_syms[mode_name], self.resonator_params[mode_name])
         substitutions.append((self.drive_syms['f_d'], self.drive_params['f_d']))
         substitutions.append((self.drive_syms['epsilon'], self.drive_params['epsilon']))
         substitutions += package_substitutions(self.potential_syms, self.potential_params)
@@ -528,7 +537,7 @@ class Model:
         eom_funcs = {}
         self.generate_g_substitutions()
         self.generate_param_substitutions()
-        combined_substitutions = self.g_substitutions + self.param_substitutions
+        combined_substitutions = self.param_substitutions + [(delta_sym, self.delta_min)]
         field_syms = [sympy.Symbol(mode_name) for mode_name in self.mode_names]
         arg_syms = [sympy.Symbol('delta_'+sym_name) for sym_name in potential_variables]
         combined_syms = field_syms + arg_syms
@@ -536,9 +545,8 @@ class Model:
         for mode_name, eom_expr in self.eom_exprs.items():
             combined_eom_expr = eom_expr
             for arg_sym, sym_name in zip(arg_syms, potential_variables):
-                derivative_subs = [(g_sym, self.Dg_at_phimin_Dparam_func(m, sym_name))
-                                   for m, g_sym in enumerate(self.g_sym)]
-                combined_eom_expr += arg_sym * eom_expr.subs(derivative_subs)
+                combined_eom_expr += arg_sym * diff(eom_expr, self.potential_syms[sym_name]).subs(
+                    self.potential_param_substitutions+[(delta_sym,self.delta_min)])
             for pair in combined_substitutions:
                 combined_eom_expr = combined_eom_expr.replace(*pair)
             eom_func = sympy.lambdify(combined_syms, combined_eom_expr)
