@@ -72,6 +72,8 @@ class Mode:
         self.Delta = self.B * calc_u_r(self.params['x_J'], self.k, self.params['l'], self.phi_o)
         self.Delta -= calc_u_l(self.params['x_J'], self.k, self.params['l'], self.phi_i)
         self.Delta *= self.A
+        self.velocity = 1 / np.sqrt(self.params['L_0'] * self.params['C_0'])
+        self.frequency = self.velocity*self.k / (2*np.pi)
 
     def calc_u(self, x):
         u = np.heaviside(self.params['x_J'] - x, 0.0) * calc_u_l(x, self.k, self.params['l'], self.phi_i)

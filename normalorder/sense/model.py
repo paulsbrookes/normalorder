@@ -1,6 +1,6 @@
 from sympy import symbols, diff, Order, collect
 import sympy
-from scipy import special, optimize
+from scipy import special, optimize, constants
 import numpy as np
 import functools
 from normalorder.operator.boson import Operator
@@ -8,6 +8,8 @@ from .mode import Mode
 import copy
 
 delta_sym = symbols('delta')
+
+Phi_0 = 2.07e-15
 
 
 def apply_rwa(operator, mode_frequencies=None):
@@ -244,14 +246,14 @@ class Model:
             mode.set_params(self.resonator_params)
             mode.solve(k_init)
             self.modes[name] = mode
-            mode_frequency = mode.k*velocity
+            mode_frequency = mode.frequency
             self.mode_frequencies[name] = mode_frequency
 
             specification = [[1] + 2 * len(names) * [0]]
             specification[0][2*self.mode_numbers[name]] = 1
             op = Operator(specification, modes=self.mode_names)
             self.mode_ops[name] = op
-            if not np.isclose(mode.Delta**2,0.0):
+            if not np.isclose(mode.Delta,0.0,atol=1e-12):
                 C_prime = C_total/mode.Delta**2
                 self.delta += np.sqrt(1/(2*mode_frequency*C_prime))*(op+op.dag())
 
@@ -293,7 +295,7 @@ class Model:
         self.potential_expr = potential_expr
         self.c_expr = tuple(self.generate_c_expr(m) for m in range(self.order + 2))
 
-    def set_potential_params(self, params: dict):
+    def set_potential_params(self, params: dict, delta_min_guess: float=None):
         """
         Supply the values of the parameters which specify the form of the potential and find the minimum of that
         potential.
@@ -310,7 +312,7 @@ class Model:
         self.potential_params = params
         self.potential_param_substitutions = [(self.potential_syms[key], self.potential_params[key])
                                               for key in self.potential_syms.keys()]
-        self.find_delta_min()
+        self.find_delta_min(delta_min_guess)
 
         substitutions = [(delta_sym, self.delta_min)]
         for name in self.potential_syms.keys():
@@ -318,8 +320,8 @@ class Model:
             substitutions.append(pair)
 
         c_2_at_min = self.c_expr[2].subs(substitutions)
-        L_J = 1/(4*np.pi*self.potential_params['f_J']*c_2_at_min)
-        L_J = np.float(L_J.evalf())
+        L_J = Phi_0**2/(4*np.pi*constants.hbar*c_2_at_min)
+        L_J = 2*np.pi*np.float(L_J.evalf())
         self.resonator_params['L_J'] = L_J
 
     def generate_c_expr(self, m: int):
@@ -380,27 +382,6 @@ class Model:
         potential = np.float(self.potential_expr.subs(substitutions).evalf())
         return potential
 
-    def g_func(self, m: int, phi: float):
-        """
-        Calculate the numerical value of a coefficient of the Taylor expansion of the potential in terms of the current
-        flowing in the resonator.
-
-        Parameters
-        ----------
-        m : int
-        The index of the coefficient to be calculated.
-
-        phi : float
-        The phase difference about which the Taylor expansion is carried out.
-
-        Returns
-        -------
-        g_m : float
-        The numerical value of the mth coefficient of the Taylor expansion around phi.
-        """
-        substitutions = [(self.c_sym[m], self.c_func(m, phi)) for m in range(self.order + 2)]
-        return np.float(self.generate_g_expr(m).subs(substitutions))
-
     def find_delta_min(self, delta_min_guess: float=None):
         """
         Find the value of the phase difference over the inductive element at which the potential is minimized.
@@ -433,7 +414,7 @@ class Model:
         -------
         None
         """
-        self.potential_hamiltonian = 0.0
+        self.potential_hamiltonian = 0.0*self.mode_ops['a']
 
         for m in range(3, self.order + 1):
             self.potential_hamiltonian += 2 * np.pi * self.potential_syms['f_J'] \
@@ -522,9 +503,6 @@ class Model:
         substitutions += package_substitutions(self.potential_syms, self.potential_params)
         self.param_substitutions = substitutions
 
-    def generate_g_substitutions(self):
-        self.g_substitutions = [(g_sym, self.g_func(m, self.delta_min)) for m, g_sym in enumerate(self.g_sym)]
-
     def generate_eom(self, potential_variables: list=[]):
         """
         Convert the sympy expressions describing the equations of motion of the fields into equations of motion which
@@ -535,7 +513,6 @@ class Model:
         None
         """
         eom_funcs = {}
-        self.generate_g_substitutions()
         self.generate_param_substitutions()
         combined_substitutions = self.param_substitutions + [(delta_sym, self.delta_min)]
         field_syms = [sympy.Symbol(mode_name) for mode_name in self.mode_names]
@@ -546,7 +523,7 @@ class Model:
             combined_eom_expr = eom_expr
             for arg_sym, sym_name in zip(arg_syms, potential_variables):
                 combined_eom_expr += arg_sym * diff(eom_expr, self.potential_syms[sym_name]).subs(
-                    self.potential_param_substitutions+[(delta_sym,self.delta_min)])
+                    self.potential_param_substitutions+[(delta_sym, self.delta_min)])
             for pair in combined_substitutions:
                 combined_eom_expr = combined_eom_expr.replace(*pair)
             eom_func = sympy.lambdify(combined_syms, combined_eom_expr)
@@ -561,23 +538,6 @@ class Model:
                 Dfields = np.array([eom_funcs[mode_name](*fields, *args) for mode_name in self.mode_names])
                 return Dfields
         self.eom = eom
-
-    def Dphimin_Dparam_func(self, param):
-        Dphimin_Dparam_expr = - diff(self.generate_c_expr(1), self.potential_syms[param]) / diff(self.generate_c_expr(1), phi_sym)
-        substitutions = self.potential_param_substitutions + [(phi_sym, self.phi_min)]
-        substitutions_dict = {sym: value for sym, value in substitutions}
-        out = np.float(Dphimin_Dparam_expr.evalf(subs=substitutions_dict))
-        return out
-
-    def Dg_at_phimin_Dparam_func(self, m, param):
-        c_substitutions = [(self.c_sym[m], self.generate_c_expr(m)) for m in range(self.order + 2)]
-        g_m = self.generate_g_expr(m).subs(c_substitutions)
-        expr = diff(g_m, phi_sym)*self.Dphimin_Dparam_func(param) + diff(g_m, self.potential_syms[param])
-        substitutions_dict = {sym: value for sym, value in self.potential_param_substitutions}
-        substitutions_dict[phi_sym] = self.phi_min
-        out = expr.evalf(subs=substitutions_dict)
-        return np.float(out)
-
 
 
 def package_substitutions(syms, params):
