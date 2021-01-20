@@ -253,9 +253,9 @@ class Model:
             specification[0][2*self.mode_numbers[name]] = 1
             op = Operator(specification, modes=self.mode_names)
             self.mode_ops[name] = op
-            if not np.isclose(mode.Delta,0.0,atol=1e-12):
-                C_prime = C_total/mode.Delta**2
-                self.delta += np.sqrt(1/(2*mode_frequency*C_prime))*(op+op.dag())
+            #if not np.isclose(mode.Delta, 0.0, atol=1e-12):
+                #C_prime = C_total/mode.Delta**2
+            self.delta += mode.Delta * np.sqrt(constants.hbar/(4*np.pi*mode_frequency*C_total))*(op+op.dag())*(1/Phi_0)
 
             self.decay_rate_syms[name] = sympy.symbols('kappa_'+name)
             self.decay_rates[name] = None
@@ -417,8 +417,8 @@ class Model:
         self.potential_hamiltonian = 0.0*self.mode_ops['a']
 
         for m in range(3, self.order + 1):
-            self.potential_hamiltonian += 2 * np.pi * self.potential_syms['f_J'] \
-                                          * self.c_expr[m] * generate_op_pow(m, self.delta)
+            self.potential_hamiltonian += self.c_func(m, self.delta_min) * generate_op_pow(m, self.delta)
+        self.potential_hamiltonian *= (1/constants.hbar)
         self.potential_hamiltonian = apply_rwa(self.potential_hamiltonian, mode_frequencies=self.mode_numbers)
 
     def generate_resonator_hamiltonian(self):
@@ -500,7 +500,7 @@ class Model:
             #substitutions += package_substitutions(self.resonator_syms[mode_name], self.resonator_params[mode_name])
         substitutions.append((self.drive_syms['f_d'], self.drive_params['f_d']))
         substitutions.append((self.drive_syms['epsilon'], self.drive_params['epsilon']))
-        substitutions += package_substitutions(self.potential_syms, self.potential_params)
+        #substitutions += package_substitutions(self.potential_syms, self.potential_params)
         self.param_substitutions = substitutions
 
     def generate_eom(self, potential_variables: list=[]):
