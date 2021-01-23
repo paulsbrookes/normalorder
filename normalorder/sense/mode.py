@@ -68,12 +68,16 @@ class Mode:
         self.B = calc_B(self.k, self.params)
         C_total = self.params['C_0'] * 2 * self.params['l']
         integral = scipy.integrate.quad(lambda x: self.calc_u(x) ** 2, -self.params['l'], self.params['l'])[0]
-        self.A = np.sqrt(C_total / integral)
+        self.A = np.sqrt(C_total / (integral*self.params['C_0']))
         self.Delta = self.B * calc_u_r(self.params['x_J'], self.k, self.params['l'], self.phi_o)
         self.Delta -= calc_u_l(self.params['x_J'], self.k, self.params['l'], self.phi_i)
         self.Delta *= self.A
         self.velocity = 1 / np.sqrt(self.params['L_0'] * self.params['C_0'])
         self.frequency = self.velocity*self.k / (2*np.pi)
+        self.C_total = C_total
+        self.L = 1/(C_total * (2*np.pi*self.frequency)**2)
+        self.C_prime = C_total / self.Delta**2
+        self.L_prime = self.L * self.Delta**2
 
     def calc_u(self, x):
         u = np.heaviside(self.params['x_J'] - x, 0.0) * calc_u_l(x, self.k, self.params['l'], self.phi_i)
