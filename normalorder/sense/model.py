@@ -320,7 +320,7 @@ class Model:
             substitutions.append(pair)
 
         c_2_at_min = self.c_expr[2].subs(substitutions)
-        L_J = Phi_0**2/(2*c_2_at_min)
+        L_J = Phi_0**2/(2*c_2_at_min*constants.h)
         L_J = np.float(L_J.evalf())
         self.resonator_params['L_J'] = L_J
 
@@ -435,8 +435,6 @@ class Model:
             self.resonator_hamiltonian += (self.mode_frequencies[name]
                                            - self.mode_numbers[name] * self.drive_syms['f_d'])\
                                           * self.mode_ops[name].dag() * self.mode_ops[name]
-
-        self.resonator_hamiltonian *= 2*sympy.pi*constants.hbar
 
     def generate_hamiltonian(self):
         """
