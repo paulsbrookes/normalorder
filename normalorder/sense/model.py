@@ -124,7 +124,6 @@ class Model:
 
     def __init__(self):
         self.c_sym = ()
-        self.g_sym = ()
         self.resonator_params = {}
         self.resonator_syms = {}
         self.potential_expr = None
@@ -133,7 +132,6 @@ class Model:
         self.potential_param_substitutions = []
         self.c_expr = ()
         self.delta_min = None
-        self.__g_expr = ()
         self.__max_order = 0
         self.order = 0
         self.hamiltonian = None
@@ -147,7 +145,6 @@ class Model:
         self.drive_params = {}
         self.drive_syms = {}
         self.param_substitutions = []
-        self.g_substitutions = []
         self.mode_names = ()
         self.modes = {}
         self.mode_frequencies = {}
@@ -176,27 +173,6 @@ class Model:
         self.__max_order = max(self.__max_order, order)
         self.order = order
         self.c_sym = c_sym[:order+2]
-        self.__g_expr = g_expr[:order+1]
-        self.g_sym = symbols(' '.join(['g_' + str(i) for i in range(self.order + 1)]))
-
-    def generate_g_expr(self, m: int):
-        """
-        Generate a coefficient, g_m, of the Taylor expansion of the potential as a function of the current.
-
-        Parameters
-        ----------
-        m : int
-        The function will generate the mth coefficient.
-
-        Returns
-        -------
-        g_m : sympy.Add
-        The mth g coefficient of the Taylor expansion.
-        """
-        if m > self.order:
-            raise Exception('Requested g expression is higher than the order of the model.')
-        else:
-            return self.__g_expr[m]
 
     def set_resonator_params(self, l: float=0.5, L_0: float=1.0, C_0: float=1.0, x_J: float=0.0):
         """
@@ -343,7 +319,7 @@ class Model:
         """
         return diff(self.potential_expr, delta_sym, m) / (special.factorial(m))
 
-    def c_func(self, m: int, delta: float):
+    def c_func(self, m: int, delta=None):
         """
         Calculate the numerical value of a coefficient of the Taylor expansion of the potential in terms of the phase
         difference across the inductive element.
@@ -361,9 +337,19 @@ class Model:
         c_m : float
         The value of the specified coefficient at the given phase difference.
         """
+
+        if delta is None:
+            delta = self.delta_min
+
         substitutions = self.potential_param_substitutions + [(delta_sym, delta)]
         c_value = np.float(self.c_expr[m].subs(substitutions).evalf())
         return c_value
+
+    def dc_func(self, m: int, potential_variable_name):
+
+        dc_expr = diff(self.c_expr[m], self.potential_syms[potential_variable_name])
+        dc = np.float(dc_expr.subs(self.potential_param_substitutions + [(delta_sym, self.delta_min)]))
+        return dc
 
     def potential_func(self, phi: float):
         """
@@ -396,7 +382,7 @@ class Model:
         None
         """
         def wrapper(x):
-            return self.c_func(1, x[0])
+            return self.c_func(1, delta=x[0])
 
         if delta_min_guess is None:
             delta_min_guess = 2 * np.pi * 3 * np.random.rand()
@@ -417,8 +403,22 @@ class Model:
         self.potential_hamiltonian = 0.0*self.mode_ops['a']
 
         for m in range(3, self.order + 1):
-            self.potential_hamiltonian += self.c_func(m, self.delta_min) * generate_op_pow(m, self.delta)
+            self.potential_hamiltonian += self.c_func(m) * generate_op_pow(m, self.delta)
         self.potential_hamiltonian = apply_rwa(self.potential_hamiltonian, mode_frequencies=self.mode_numbers)
+
+    def generate_potential_derivative_op(self, potential_variable_name):
+        potential_derivative_op = 0
+        for m in range(self.order+1):
+            potential_derivative_op += self.dc_func(m, potential_variable_name)*generate_op_pow(m, self.delta)
+        potential_derivative_op = apply_rwa(potential_derivative_op, mode_frequencies=self.mode_numbers)
+        return potential_derivative_op
+
+    def generate_potential_derivative_eom_expr(self, potential_variable_name, mode_name):
+        potential_derivative_op = self.generate_potential_derivative_op(potential_variable_name)
+        mode_op = self.mode_ops[mode_name]
+        eom_op = 1j * (potential_derivative_op * mode_op - mode_op * potential_derivative_op)
+        eom_expr = 2*sympy.pi*convert_op_to_expr(eom_op)
+        return eom_expr
 
     def generate_resonator_hamiltonian(self):
         """
@@ -428,7 +428,7 @@ class Model:
         -------
         None
         """
-        self.resonator_hamiltonian = self.drive_syms['epsilon']*self.mode_ops[self.mode_names[0]].dag()
+        self.resonator_hamiltonian = 1j*self.drive_syms['epsilon']*self.mode_ops[self.mode_names[0]].dag()
         self.resonator_hamiltonian += self.resonator_hamiltonian.dag()
 
         for name in self.mode_names:
@@ -459,7 +459,7 @@ class Model:
         """
         self.lindblad_ops = {}
         for name, op in self.mode_ops.items():
-            self.lindblad_ops[name] = sympy.sqrt(2*sympy.pi*self.decay_rate_syms[name])*op
+            self.lindblad_ops[name] = sympy.sqrt(self.decay_rate_syms[name])*op
 
     def generate_eom_ops(self):
         """
@@ -476,7 +476,7 @@ class Model:
             for mode_name, l_op in self.lindblad_ops.items():
                 eom_op += l_op.dag() * mode_op * l_op - 0.5 * mode_op * l_op.dag() * l_op \
                                  - 0.5 * l_op.dag() * l_op * mode_op
-            self.eom_ops[name] = eom_op
+            self.eom_ops[name] = 2*sympy.pi*eom_op
 
     def generate_eom_exprs(self):
         """
@@ -496,10 +496,8 @@ class Model:
         substitutions = []
         for name in self.mode_names:
             substitutions.append((self.decay_rate_syms[name], self.decay_rates[name]))
-            #substitutions += package_substitutions(self.resonator_syms[mode_name], self.resonator_params[mode_name])
         substitutions.append((self.drive_syms['f_d'], self.drive_params['f_d']))
         substitutions.append((self.drive_syms['epsilon'], self.drive_params['epsilon']))
-        #substitutions += package_substitutions(self.potential_syms, self.potential_params)
         self.param_substitutions = substitutions
 
     def generate_eom(self, potential_variables: list=[]):
@@ -513,17 +511,15 @@ class Model:
         """
         eom_funcs = {}
         self.generate_param_substitutions()
-        combined_substitutions = self.param_substitutions + [(delta_sym, self.delta_min)]
         field_syms = [sympy.Symbol(mode_name) for mode_name in self.mode_names]
-        arg_syms = [sympy.Symbol('delta_'+sym_name) for sym_name in potential_variables]
-        combined_syms = field_syms + arg_syms
+        potential_variable_syms = [sympy.Symbol('delta_'+sym_name) for sym_name in potential_variables]
+        combined_syms = field_syms + potential_variable_syms
 
         for mode_name, eom_expr in self.eom_exprs.items():
             combined_eom_expr = eom_expr
-            for arg_sym, sym_name in zip(arg_syms, potential_variables):
-                combined_eom_expr += arg_sym * diff(eom_expr, self.potential_syms[sym_name]).subs(
-                    self.potential_param_substitutions+[(delta_sym, self.delta_min)])
-            for pair in combined_substitutions:
+            for sym, sym_name in zip(potential_variable_syms, potential_variables):
+                combined_eom_expr += sym * self.generate_potential_derivative_eom_expr(sym_name, mode_name)
+            for pair in self.param_substitutions:
                 combined_eom_expr = combined_eom_expr.replace(*pair)
             eom_func = sympy.lambdify(combined_syms, combined_eom_expr)
             eom_funcs[mode_name] = eom_func
