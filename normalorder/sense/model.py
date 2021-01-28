@@ -153,6 +153,8 @@ class Model:
         self.decay_rates = {}
         self.decay_rate_syms = {}
         self.delta = 0
+        self.drive_syms = {'f_d': sympy.Symbol('f_d'),
+                           'epsilon': sympy.Symbol('epsilon')}
 
     def set_order(self, order: int):
         """
@@ -247,8 +249,6 @@ class Model:
     def set_drive_params(self, f_d: float, epsilon: complex):
         self.drive_params['f_d'] = f_d
         self.drive_params['epsilon'] = epsilon
-        self.drive_syms = {'f_d': sympy.Symbol('f_d'),
-                           'epsilon': sympy.Symbol('epsilon')}
 
     def set_potential(self, potential_expr: sympy.Add, potential_param_syms: dict):
         """
@@ -500,7 +500,7 @@ class Model:
         substitutions.append((self.drive_syms['epsilon'], self.drive_params['epsilon']))
         self.param_substitutions = substitutions
 
-    def generate_eom(self, potential_variables: list=[]):
+    def generate_eom(self, potential_variables: list=[], timescale=1e-9):
         """
         Convert the sympy expressions describing the equations of motion of the fields into equations of motion which
         are suitable for numerical integration.
@@ -521,7 +521,7 @@ class Model:
                 combined_eom_expr += sym * self.generate_potential_derivative_eom_expr(sym_name, mode_name)
             for pair in self.param_substitutions:
                 combined_eom_expr = combined_eom_expr.replace(*pair)
-            eom_func = sympy.lambdify(combined_syms, combined_eom_expr)
+            eom_func = sympy.lambdify(combined_syms, combined_eom_expr*timescale)
             eom_funcs[mode_name] = eom_func
 
         if len(potential_variables) == 0:
