@@ -500,7 +500,7 @@ class Model:
         substitutions.append((self.drive_syms['epsilon'], self.drive_params['epsilon']))
         self.param_substitutions = substitutions
 
-    def generate_eom(self, potential_variables: list=[], timescale=1e-9):
+    def generate_eom(self, potential_variables: list=[], timescale=1e-9, custom=None):
         """
         Convert the sympy expressions describing the equations of motion of the fields into equations of motion which
         are suitable for numerical integration.
@@ -519,6 +519,7 @@ class Model:
             combined_eom_expr = eom_expr
             for sym, sym_name in zip(potential_variable_syms, potential_variables):
                 combined_eom_expr += sym * self.generate_potential_derivative_eom_expr(sym_name, mode_name)
+                combined_eom_expr += sym*custom*sympy.conjugate(field_syms[0])*field_syms[0]
             for pair in self.param_substitutions:
                 combined_eom_expr = combined_eom_expr.replace(*pair)
             eom_func = sympy.lambdify(combined_syms, combined_eom_expr*timescale)
