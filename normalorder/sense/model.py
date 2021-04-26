@@ -368,7 +368,7 @@ class Model:
         potential = np.float(self.potential_expr.subs(substitutions).evalf())
         return potential
 
-    def find_delta_min(self, delta_min_guess: float=None):
+    def find_delta_min(self, delta_min_guess: float=None, kwargs={}):
         """
         Find the value of the phase difference over the inductive element at which the potential is minimized.
 
@@ -384,11 +384,15 @@ class Model:
         def wrapper(x):
             return self.c_func(1, delta=x[0])
 
+        if not 'tol' in kwargs.keys():
+            kwargs['tol'] = 0.0
+
         if delta_min_guess is None:
             delta_min_guess = 2 * np.pi * 3 * np.random.rand()
         elif isinstance(delta_min_guess, float):
             delta_min_guess = np.array([delta_min_guess])
-        res = optimize.root(wrapper, delta_min_guess, tol=0)
+        res = optimize.root(wrapper, delta_min_guess, **kwargs)
+        self.res = res
         self.delta_min = res.x[0]
 
     def generate_potential_hamiltonian(self):
