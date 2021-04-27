@@ -1,6 +1,5 @@
-import pandas as pd
 import numpy as np
-from string import ascii_lowercase
+from sortedcontainers import SortedDict
 import functools
 
 
@@ -28,39 +27,64 @@ def multiply_components_raw(k, l, m, n):
     commutator_terms[:, 1] += k
     commutator_terms[:, 2] += n
     output_list.append(commutator_terms)
-
     return np.vstack(output_list)
 
 
-def multiply_components(component_1, component_2, mode_name):
-    assert component_1.shape[0] == 1 and component_2.shape[0] == 1
+def multiply_components(exponents_1, exponents_2):
+    dict_final = SortedDict()
+    multiplied_components = multiply_components_raw(*exponents_1, *exponents_2)
+    spec_dict = SortedDict()
+    for element in multiplied_components:
+        spec_dict[tuple(element[1:].astype(int))] = element[0]
+    dict_final = add_dictionaries(dict_final, spec_dict)
 
-    columns = ['coeff', mode_name + '_dag', mode_name]
+    return dict_final
 
-    k = component_1[mode_name + '_dag'].iloc[0]
-    l = component_1[mode_name].iloc[0]
-    coeff_1 = component_1['coeff'].iloc[0]
 
-    m = component_2[mode_name + '_dag'].iloc[0]
-    n = component_2[mode_name].iloc[0]
-    coeff_2 = component_2['coeff'].iloc[0]
+def tensor_product_dictionaries(dict_1, dict_2):
+    output_dict = SortedDict()
+    for key_1, coeff_1 in dict_1.items():
+        for key_2, coeff_2 in dict_2.items():
+            key_out = key_1 + key_2
+            coeff_out = coeff_1 * coeff_2
+            output_dict[key_out] = coeff_out
+    return output_dict
 
-    assert k >= 0 and l >= 0 and m >= 0 and n >= 0
 
-    c = coeff_1 * coeff_2
+def multiply_dictionaries(dict_1, dict_2):
+    dict_final = SortedDict()
+    for exponents_1, coeff_1 in dict_1.items():
+        for exponents_2, coeff_2 in dict_2.items():
+            component_product = None
+            for subexponents_1, subexponents_2 in zip(np.array(exponents_1).reshape(-1, 2),
+                                                      np.array(exponents_2).reshape(-1, 2)):
+                test = multiply_components(subexponents_1, subexponents_2)
+                if component_product is None:
+                    component_product = test
+                else:
+                    component_product = tensor_product_dictionaries(component_product, test)
+            dict_final = add_dictionaries(dict_final, component_product)
+    return dict_final
 
-    output_raw = multiply_components_raw(k, l, m, n)
-    output_raw[:, 0] *= c
-    output = pd.DataFrame(output_raw, columns=columns)
 
-    return output
+def add_dictionaries(dict_1, dict_2):
+    dict_final = SortedDict({x: dict_1.get(x, 0) + dict_2.get(x, 0)
+                             for x in set(dict_1).union(dict_2)})
+    return dict_final
+
+
+def multiply_dictionary_by_scalar(dictionary, scalar):
+    output_dictionary = SortedDict()
+    for key, value in dictionary.items():
+        output_dictionary[key] = value * scalar
+    return output_dictionary
 
 
 class Operator:
 
     def __init__(self, spec=None, modes=None):
 
-        if isinstance(modes,str):
+        if isinstance(modes, str):
             modes = [modes]
         if modes is None:
             n_modes = (np.array(spec).shape[1] - 1) // 2
@@ -74,20 +98,34 @@ class Operator:
 
         columns = ['coeff'] + ladder_op_names
 
-        if isinstance(spec, list):
-            self.data = pd.DataFrame(spec, columns=columns)
-        elif isinstance(spec, pd.DataFrame):
-            self.data = spec.copy()
-            #self.data.columns = spec.columns
-
-        self.consolidate()
+        if isinstance(spec, SortedDict):
+            self.data = spec
+        elif isinstance(spec, dict):
+            self.data = SortedDict(spec)
+        elif isinstance(spec, (np.ndarray, list, tuple)):
+            self.data = SortedDict()
+            for el in spec:
+                self.data[tuple(el[1:])] = el[0]
+        else:
+            RaiseException('Cannot handle spec input of type ' + type(spec) + '.')
 
     def __add__(self, other):
         if not isinstance(other, Operator):
-            other = Operator([[other] + [0,0]*len(self.modes)],modes=self.modes)
-        combined_data = pd.concat([self.data, other.data])
-        output_operator = Operator(combined_data,modes=self.modes)
+            other = Operator([[other] + [0, 0] * len(self.modes)], modes=self.modes)
+        combined_data = add_dictionaries(self.data, other.data)
+        output_operator = Operator(combined_data, modes=self.modes)
         return output_operator
+
+    def __mul__(self, other):
+        if isinstance(other, Operator):
+            output_dictionary = multiply_dictionaries(self.data, other.data)
+        else:
+            output_dictionary = multiply_dictionary_by_scalar(self.data, other)
+        output_operator = Operator(spec=output_dictionary, modes=self.modes)
+        return output_operator
+
+    def __rmul__(self, other):
+        return self.__mul__(other)
 
     def __sub__(self, other):
         output_operator = self + (-1 * other)
@@ -96,18 +134,6 @@ class Operator:
     def __rsub__(self, other):
         output_operator = other + (-1 * self)
         return output_operator
-
-    def __mul__(self, other):
-        if isinstance(other, Operator):
-            output_operator = multiply_operators(self, other)
-        else:
-            output_operator = self.copy()
-            output_operator.data['coeff'] *= other
-        return output_operator
-
-    def __rmul__(self, other):
-        assert not isinstance(other, Operator)
-        return self.__mul__(other)
 
     def __radd__(self, other):
         return self.__add__(other)
@@ -119,73 +145,14 @@ class Operator:
             output_operator = output_operator * self
         return output_operator
 
-    def __hash__(self):
-        h0 = hash(self.data.values.tobytes())
-        h1 = hash(''.join(self.data.columns))
-        h = h0 + h1
-        return h
-
     def copy(self):
-        return Operator(self.data.copy())
-
-    def consolidate(self):
-        self.data = self.data.groupby(self.ladder_op_names)['coeff'].sum().reset_index()
-        self.data = self.data[['coeff']+self.ladder_op_names]
-        pass
-        #mask = ~np.isclose(self.data['coeff'], 0)
-        #self.data = self.data[mask]
+        return Operator(spec=self.data, modes=self.modes)
 
     def dag(self):
-        output_operator = self.copy()
-        output_operator.data['coeff'] = np.conjugate(output_operator.data['coeff'])
-        swap_dict = {}
-        for l in self.modes:
-            swap_dict[l] = l + '_dag'
-            swap_dict[l + '_dag'] = l
-        output_operator.data.rename(columns=swap_dict, inplace=True)
-        output_operator.data = output_operator.data[self.data.columns]
-        return output_operator
-
-
-def tensor(op_1, op_2):
-    coeffs_out = []
-    components_out = []
-    for idx in range(op_1.data.shape[0]):
-        for jdx in range(op_2.data.shape[0]):
-            components_out.append(
-                pd.concat([op_1.data.drop(columns='coeff').iloc[idx], op_2.data.drop(columns='coeff').iloc[jdx]]))
-            coeffs_out.append(op_1.data['coeff'].iloc[idx] * op_2.data['coeff'].iloc[jdx])
-    op_out_data = pd.concat(components_out, axis=1).T
-    op_out_data.index = np.arange(op_out_data.shape[0])
-    op_out_data['coeff'] = coeffs_out
-    op_out = Operator(op_out_data, modes=op_1.modes + op_2.modes)
-    return op_out
-
-
-def multiply_operators(op_1, op_2):
-    output_components = []
-    for idx in range(op_1.data.shape[0]):
-        for jdx in range(op_2.data.shape[0]):
-            output_components.append(
-                multiply_terms(op_1.data.iloc[idx:idx + 1], op_2.data.iloc[jdx:jdx + 1], op_1.modes).data)
-    output_operator = Operator(spec=pd.concat(output_components), modes=op_1.modes)
-    return output_operator
-
-
-def multiply_terms(term_1, term_2, modes):
-    component_products = []
-    for l in modes:
-        component_1 = term_1[['coeff']+[l + '_dag', l]].copy()
-        component_1['coeff'] = 1.0
-        component_2 = term_2[['coeff']+[l + '_dag', l]].copy()
-        component_2['coeff'] = 1.0
-        out = multiply_components(component_1, component_2, l)
-        component_product = Operator(out, modes=[l])
-        component_products.append(component_product)
-
-    tensored_products = term_1['coeff'].iloc[0] * term_2['coeff'].iloc[0] * component_products[0]
-    #tensored_products = component_products[0]
-    for idx in range(len(modes) - 1):
-        tensored_products = tensor(tensored_products, component_products[idx + 1])
-
-    return tensored_products
+        conjugated_dictionary = SortedDict()
+        for exponents, coeff in self.data.items():
+            conjugated_exponents = ()
+            for mode_idx in range(len(exponents) // 2):
+                conjugated_exponents += (exponents[2 * mode_idx + 1], exponents[2 * mode_idx])
+            conjugated_dictionary[conjugated_exponents] = np.conjugate(coeff)
+        return Operator(spec=conjugated_dictionary, modes=self.modes)
