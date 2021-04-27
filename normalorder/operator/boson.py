@@ -1,6 +1,7 @@
 import numpy as np
 from sortedcontainers import SortedDict
 import functools
+from string import ascii_lowercase
 
 
 @functools.lru_cache(maxsize=512)
@@ -35,7 +36,11 @@ def multiply_components(exponents_1, exponents_2):
     multiplied_components = multiply_components_raw(*exponents_1, *exponents_2)
     spec_dict = SortedDict()
     for element in multiplied_components:
-        spec_dict[tuple(element[1:].astype(int))] = element[0]
+        key = tuple(element[1:].astype(int))
+        if key in spec_dict.keys():
+            spec_dict[tuple(element[1:].astype(int))] += element[0]
+        else:
+            spec_dict[tuple(element[1:].astype(int))] = element[0]
     dict_final = add_dictionaries(dict_final, spec_dict)
 
     return dict_final
@@ -107,7 +112,7 @@ class Operator:
             for el in spec:
                 self.data[tuple(el[1:])] = el[0]
         else:
-            RaiseException('Cannot handle spec input of type ' + type(spec) + '.')
+            raise Exception('Cannot handle spec input of type ' + type(spec) + '.')
 
     def __add__(self, other):
         if not isinstance(other, Operator):

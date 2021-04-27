@@ -1,21 +1,57 @@
 from unittest import TestCase
-from normalorder.operator.boson import Operator, multiply_operators
-import sympy
+from normalorder.operator.boson import Operator
 
 
-class TestMultiply_operators(TestCase):
-    def test_function_multiply_operators(self):
-        coeff = sympy.Symbol('x')
-        a = Operator([[coeff,0,1]])
-        x = a + a.dag()
-        output = multiply_operators(x, x)
+class TestOperatorMethods(TestCase):
 
-    def test_class_operator_multiply(self):
-        coeff = sympy.Symbol('x')
-        a = Operator([[coeff,0,1]])
-        x = a + a.dag()
-        output = x*x
+    def test_mul(self):
+        a = Operator([[1.0, 0, 1]])
 
+        output = a*a
+        target = Operator([[1.0, 0, 2]])
+        self.assertEqual(output.data, target.data)
 
+        output = a*a.dag()
+        target = Operator([[1.0, 1, 1], [1.0, 0, 0]])
+        self.assertEqual(output.data, target.data)
 
+        output = a.dag()*a
+        target = Operator([[1.0, 1, 1]])
+        self.assertEqual(output.data, target.data)
+
+        output = a.dag()*a.dag()
+        target = Operator([[1.0, 2, 0]])
+        self.assertEqual(output.data, target.data)
+
+        output = a*a*a
+        target = Operator([[1.0, 0, 3]])
+        self.assertEqual(output.data, target.data)
+
+        output = a*a*a.dag()
+        target = Operator([[1.0, 1, 2], [2.0, 0, 1]])
+        self.assertEqual(output.data, target.data)
+
+        output = a*a.dag()*a
+        target = Operator([[1.0, 1, 2], [1.0, 0, 1]])
+        self.assertEqual(output.data, target.data)
+
+        output = a*a.dag()*a.dag()
+        target = Operator([[1.0, 2, 1], [2.0, 1, 0]])
+        self.assertEqual(output.data, target.data)
+
+        output = a.dag()*a*a
+        target = Operator([[1.0, 1, 2]])
+        self.assertEqual(output.data, target.data)
+
+        output = a.dag()*a*a.dag()
+        target = Operator([[1.0, 2, 1], [1.0, 1, 0]])
+        self.assertEqual(output.data, target.data)
+
+        output = a.dag()*a.dag()*a
+        target = Operator([[1.0, 2, 1]])
+        self.assertEqual(output.data, target.data)
+
+        output = a.dag()*a.dag()*a.dag()
+        target = Operator([[1.0, 3, 0]])
+        self.assertEqual(output.data, target.data)
 
