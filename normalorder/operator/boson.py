@@ -1,60 +1,12 @@
 import numpy as np
 from sortedcontainers import SortedDict
-import functools
 import sympy
-from string import ascii_lowercase
 from scipy.special import factorial
-
-
-def multiply_components(exponents_1, exponents_2):
-    dict_final = SortedDict()
-    multiplied_components = multiply_components_raw(*exponents_1, *exponents_2)
-    spec_dict = SortedDict()
-    for element in multiplied_components:
-        key = tuple(element[1:].astype(int))
-        if key in spec_dict.keys():
-            spec_dict[tuple(element[1:].astype(int))] += element[0]
-        else:
-            spec_dict[tuple(element[1:].astype(int))] = element[0]
-    dict_final = add_dictionaries(dict_final, spec_dict)
-
-    return dict_final
-
-
-def tensor_product_dictionaries(dict_1, dict_2):
-    output_dict = SortedDict()
-    for key_1, coeff_1 in dict_1.items():
-        for key_2, coeff_2 in dict_2.items():
-            key_out = key_1 + key_2
-            coeff_out = coeff_1 * coeff_2
-            output_dict[key_out] = coeff_out
-    return output_dict
-
-
-def multiply_dictionaries(dict_1, dict_2):
-    dict_final = SortedDict()
-    for exponents_1, coeff_1 in dict_1.items():
-        for exponents_2, coeff_2 in dict_2.items():
-            component_product = None
-            for subexponents_1, subexponents_2 in zip(np.array(exponents_1).reshape(-1, 2),
-                                                      np.array(exponents_2).reshape(-1, 2)):
-                test = multiply_components(subexponents_1, subexponents_2)
-                if component_product is None:
-                    component_product = test
-                else:
-                    component_product = tensor_product_dictionaries(component_product, test)
-            dict_final = add_dictionaries(dict_final, component_product)
-    return dict_final
-
-
-def add_dictionaries(dict_1, dict_2):
-    dict_final = SortedDict({x: dict_1.get(x, 0) + dict_2.get(x, 0)
-                             for x in set(dict_1).union(dict_2)})
-    return dict_final
+import numbers
 
 
 def commutator_func(x, y):
-    if not isinstance(x, int) or not isinstance(y, int) or x < 0 or y < 0:
+    if not isinstance(x, numbers.Integral) or not isinstance(y, numbers.Integral) or x < 0 or y < 0:
         raise Exception('This function only accepts exponents which are positive integers or zero.')
 
     def coeff_func(x, y, l):
@@ -69,7 +21,8 @@ def commutator_func(x, y):
 
 
 def tensor(op_1, op_2):
-    op_final = Operator()
+    n_modes = op_1.n_modes + op_2.n_modes
+    op_final = Operator(n_modes=n_modes)
     for key_1, coeff_1 in op_1.items():
         for key_2, coeff_2 in op_2.items():
             key_combined = key_1 + key_2
@@ -93,6 +46,9 @@ class Operator(SortedDict):
                 spec = {tuple(element[1:]): element[0] for element in spec}
             if len(spec) == 0:
                 raise Exception('Spec must not be empty.')
+            for key in spec.keys():
+                if not all(map(lambda el: isinstance(el, numbers.Integral), key)):
+                    raise Exception('All elements of the key must be integers.')
             super().__init__(spec)
 
             all_tuples_bool = all(list(map(lambda key: isinstance(key, tuple), self.keys())))
@@ -111,11 +67,11 @@ class Operator(SortedDict):
             self.n_modes = n_modes
 
     def __add__(self, other):
-        if not isinstance(other, (float, int, complex, Operator, sympy.core.mul.Mul, sympy.core.symbol.Symbol)):
+        if not isinstance(other, (float, numbers.Integral, complex, Operator, sympy.core.mul.Mul, sympy.core.symbol.Symbol)):
             raise Exception(
                 'The only permitted types are: float, int, comlex, Operator, sympy.core.mul.Mul and sympy.core.mul.symbols.Symbol.')
         if not isinstance(other, Operator):
-            other = Operator({tuple(0 for i in range(2 * self.n_modes)): other})
+            other = Operator({2*self.n_modes*(0,): other})
         output_operator = Operator({x: self.get(x, 0) + other.get(x, 0) for x in set(self).union(other)})
         return output_operator
 
@@ -126,13 +82,8 @@ class Operator(SortedDict):
             raise Exception('Both operators must have the same number of modes.')
         if self.n_modes == 1:
             return self.__single_mode_mul__(other)
-
-        if isinstance(other, Operator):
-            output_dictionary = multiply_dictionaries(self, other)
         else:
-            output_dictionary = multiply_dictionary_by_scalar(self, other)
-        output_operator = Operator(spec=output_dictionary)
-        return output_operator
+            return self.__multi_mode_mul__(other)
 
     def __scalar_mul__(self, scalar):
         output_op = Operator(n_modes=self.n_modes)
@@ -172,8 +123,9 @@ class Operator(SortedDict):
         return self.__add__(other)
 
     def __pow__(self, exponent):
-        assert isinstance(exponent, int)
-        output_operator = 1
+        if not isinstance(exponent, numbers.Integral):
+            raise Exception('Only integer exponents are allowed.')
+        output_operator = Operator({2*self.n_modes*(0,): 1.0})
         for n in range(exponent):
             output_operator = output_operator * self
         return output_operator
@@ -195,31 +147,29 @@ class Operator(SortedDict):
             raise Exception('The key must be a tuple.')
         if len(key) != 2 * self.n_modes:
             raise Exception('The key length must be equal to twice the number of modes.')
+        if not all(map(lambda el: isinstance(el, numbers.Integral), key)):
+            raise Exception('All elements of the key must be integers.')
         super().__setitem__(key, value)
 
+    def get_term(self, key):
+        coeff = self[key]
+        term = Operator({key: coeff})
+        return term
 
-@functools.lru_cache(maxsize=512)
-def comm_func_raw(m, n):
-    if m == 0 or n == 0:
-        return np.zeros([0, 3])
-    else:
-        term_1 = np.array([[n, n - 1, m - 1]])
-        output_list = [term_1]
-        term_2 = np.copy(comm_func_raw(m - 1, n - 1))
-        term_2[:, 0] *= n
-        output_list.append(term_2)
-        term_3 = np.copy(comm_func_raw(m - 1, n))
-        term_3[:, 2] += 1
-        output_list.append(term_3)
-        output_array = np.vstack(output_list)
-        output_array.flags.writeable = False
-        return output_array
-
-
-def multiply_components_raw(k, l, m, n):
-    output_list = [np.array([[1, k + m, l + n]])]
-    commutator_terms = np.copy(comm_func_raw(l, m))
-    commutator_terms[:, 1] += k
-    commutator_terms[:, 2] += n
-    output_list.append(commutator_terms)
-    return np.vstack(output_list)
+    def __multi_mode_mul__(self, other):
+        op_final = Operator(n_modes=self.n_modes)
+        for exponents_1, coeff_1 in self.items():
+            for exponents_2, coeff_2 in other.items():
+                term_product = None
+                for mode_idx in range(self.n_modes):
+                    component_1 = Operator({exponents_1[2 * mode_idx:2 * (mode_idx + 1)]: 1.0})
+                    component_2 = Operator({exponents_2[2 * mode_idx:2 * (mode_idx + 1)]: 1.0})
+                    component_product = component_1 * component_2
+                    if term_product is None:
+                        term_product = component_product
+                    else:
+                        term_product = tensor(term_product, component_product)
+                coeff_product = coeff_1 * coeff_2
+                term_product *= coeff_product
+                op_final += term_product
+        return op_final
