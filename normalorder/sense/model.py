@@ -229,7 +229,7 @@ class Model:
 
             specification = [[1] + 2 * len(names) * [0]]
             specification[0][2*self.mode_numbers[name]] = 1
-            op = Operator(specification, modes=self.mode_names)
+            op = Operator(spec=specification)
             self.mode_ops[name] = op
             #if not np.isclose(mode.Delta, 0.0, atol=1e-12):
                 #C_prime = C_total/mode.Delta**2
