@@ -1,4 +1,4 @@
-from normalorder.sense.model_current import Model
+from normalorder.sense.model import Model
 import sympy
 import numpy as np
 from unittest import TestCase

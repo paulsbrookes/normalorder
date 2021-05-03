@@ -8,7 +8,7 @@ def calc_relative_error(val1, val2):
     return abs(val1-val2)/min(abs(val1), abs(val2))
 
 
-class Test(TestCase):
+class ModeTest(TestCase):
 
     def setUp(self):
         np.random.seed(seed=0)
@@ -188,7 +188,7 @@ class Test(TestCase):
         analytical formula based on the rotating wave approximation.
         """
 
-        places = 3
+        places = 4
         n_subtests = 10
 
         for i in range(n_subtests):
@@ -199,7 +199,7 @@ class Test(TestCase):
                 L_0 = Z / v_p  # H/m
                 C_0 = 1 / (v_p * Z)  # F/m
                 x_J = 0.12481751778187578 * l  # m
-                L_J_1 = 7.696945473011622e-11 * np.random.uniform(0.0, 1.0)  # H
+                L_J_1 = 1e-10 * np.random.uniform(0.0, 1.0)  # H
                 C_i = 0.0
                 C_o = 0.0
 
@@ -218,7 +218,7 @@ class Test(TestCase):
                 mode_2.set_params(params_2)
                 mode_2.solve(k_init)
 
-                frequency_ratio = mode_2.frequency/mode_1.frequency
-                target_ratio = np.sqrt(1 - mode_1.L*DeltaL_J*mode_1.Delta**2 / (L_J_1**2))
-                relative_error = calc_relative_error(1-frequency_ratio, 1-target_ratio)
+                target_ratio = mode_2.frequency/mode_1.frequency
+                estimated_ratio = np.sqrt(1 - mode_1.L*DeltaL_J*mode_1.Delta**2 / (L_J_1**2))
+                relative_error = calc_relative_error(1-target_ratio, 1-estimated_ratio)
                 self.assertAlmostEqual(relative_error, 0.0, places=places)

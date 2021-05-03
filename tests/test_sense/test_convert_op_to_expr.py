@@ -1,5 +1,5 @@
 from unittest import TestCase
-from normalorder.sense.model_current import convert_op_to_expr
+from normalorder.sense.model import convert_op_to_expr
 from normalorder.operator.boson import Operator
 import sympy
 import numpy as np
