@@ -4,24 +4,25 @@ from scipy import special, optimize, constants
 import numpy as np
 import functools
 from normalorder.operator.boson import Operator
+from sortedcontainers import SortedDict
 from .mode import Mode
-import copy
 
 delta_sym = symbols('delta')
 
-Phi_0 = 2.07e-15
+
 
 
 def apply_rwa(operator, mode_frequencies=None):
     if mode_frequencies is None:
-        mode_frequencies = {}
-        for idx, mode in enumerate(operator.modes):
-            mode_frequencies[mode] = idx + 1
-    net_frequencies = 0
-    for mode, frequency in mode_frequencies.items():
-        net_frequencies += frequency * (operator.data[mode] - operator.data[mode + '_dag'])
-    mask = np.isclose(net_frequencies, 0.0)
-    operator_rwa = Operator(operator.data.iloc[mask], modes=operator.modes)
+        mode_frequencies = list(range(1,operator.n_modes+1))
+    mode_frequencies = np.array(mode_frequencies)
+    rotation_frequencies = (mode_frequencies[:, np.newaxis] * np.array([-1, 1])[np.newaxis, :]).flatten()
+    net_frequencies = list(map(lambda key: sum(np.array(key)*rotation_frequencies), operator.keys()))
+    spec = SortedDict()
+    for key, frequency, coeff in zip(operator.keys(), net_frequencies, operator.values()):
+        if np.isclose(frequency, 0.0):
+            spec[key] = coeff
+    operator_rwa = Operator(spec=spec)
     return operator_rwa
 
 
@@ -155,6 +156,7 @@ class Model:
         self.delta = 0
         self.drive_syms = {'f_d': sympy.Symbol('f_d'),
                            'epsilon': sympy.Symbol('epsilon')}
+        self.Phi_0 = constants.physical_constants['mag. flux quantum'][0]
 
     def set_order(self, order: int):
         """
@@ -231,9 +233,7 @@ class Model:
             specification[0][2*self.mode_numbers[name]] = 1
             op = Operator(spec=specification)
             self.mode_ops[name] = op
-            #if not np.isclose(mode.Delta, 0.0, atol=1e-12):
-                #C_prime = C_total/mode.Delta**2
-            self.delta += mode.Delta * np.sqrt(constants.hbar/(4*np.pi*mode_frequency*C_total))*(op+op.dag())*(1/Phi_0)
+            self.delta += mode.Delta * np.sqrt(constants.hbar/(4*np.pi*mode_frequency*C_total))*(op+op.dag())*(1/self.Phi_0)
 
             self.decay_rate_syms[name] = sympy.symbols('kappa_'+name)
             self.decay_rates[name] = None
@@ -252,8 +252,10 @@ class Model:
 
     def set_potential(self, potential_expr: sympy.Add, potential_param_syms: dict):
         """
-        Supply a symbolic expression constructed with sympy to specify the potential of the inductive element. Also
-        supply a list of symbols used in this expression.
+        Supply a symbolic expression constructed with sympy to specify the potential of the embedded inductive element.
+        Also supply a list of symbols used in this expression. The potential should be given in natural frequency units
+        i.e. occurrences per second. The potential must be given in terms of the symbol symbols('delta') which is in
+        units the flux quantum model.Phi_0.
 
         Parameters
         ----------
@@ -296,7 +298,7 @@ class Model:
             substitutions.append(pair)
 
         c_2_at_min = self.c_expr[2].subs(substitutions)
-        L_J = Phi_0**2/(2*c_2_at_min*constants.h)
+        L_J = self.Phi_0**2/(2*c_2_at_min*constants.h)
         L_J = np.float(L_J.evalf())
         self.resonator_params['L_J'] = L_J
 
@@ -407,14 +409,14 @@ class Model:
         self.potential_hamiltonian = 0.0*self.mode_ops['a']
 
         for m in range(3, self.order + 1):
-            self.potential_hamiltonian += self.c_func(m) * generate_op_pow(m, self.delta)
-        self.potential_hamiltonian = apply_rwa(self.potential_hamiltonian, mode_frequencies=self.mode_numbers)
+            self.potential_hamiltonian += self.c_func(m) * self.delta**m
+        self.potential_hamiltonian = apply_rwa(self.potential_hamiltonian)
 
     def generate_potential_derivative_op(self, potential_variable_name):
         potential_derivative_op = 0
         for m in range(self.order+1):
-            potential_derivative_op += self.dc_func(m, potential_variable_name)*generate_op_pow(m, self.delta)
-        potential_derivative_op = apply_rwa(potential_derivative_op, mode_frequencies=self.mode_numbers)
+            potential_derivative_op += self.dc_func(m, potential_variable_name)*self.delta**m
+        potential_derivative_op = apply_rwa(potential_derivative_op)
         return potential_derivative_op
 
     def generate_potential_derivative_eom_expr(self, potential_variable_name, mode_name):
@@ -568,13 +570,6 @@ def convert_op_to_expr(op, return_syms=False):
     else:
         return expr
 
-
-@functools.lru_cache(maxsize=64)
-def generate_op_pow(exponent: int, operator):
-    if exponent > 0:
-        return copy.deepcopy(operator * generate_op_pow(exponent - 1, operator))
-    else:
-        return 1
 
 def classical_function_factory(operator):
     modes = operator.modes

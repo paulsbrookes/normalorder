@@ -61,7 +61,8 @@ class Mode:
         self.eps = eps
 
     def set_params(self, params):
-        self.params = params
+        self.params = {'C_i': 0.0, 'C_o': 0.0}
+        self.params.update(params)
 
     def calc_B(self, k):
         current_left_scaled = self.calc_u_l_grad(self.params['x_J'])

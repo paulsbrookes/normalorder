@@ -2,6 +2,7 @@ from normalorder.sense.model import Model
 import sympy
 import numpy as np
 from unittest import TestCase
+from scipy import constants
 
 
 class TestModel(TestCase):
@@ -15,6 +16,21 @@ class TestModel(TestCase):
         self.assertIsInstance(self.model.c_sym, tuple)
         self.assertEqual(len(self.model.c_sym), 2)
         self.assertIsInstance(self.model.resonator_params, dict)
+
+    def test_obtaining_L_J(self):
+        L_J_list = [1e-11, 1e-10, 1e-9]
+        for i, L_J in enumerate(L_J_list):
+            with self.subTest(i=i):
+                delta_sym, L_J_sym = sympy.symbols('delta L_J')
+                potential_param_symbols = {'L_J': L_J_sym}
+                potential_expr = - (delta_sym * self.model.Phi_0) ** 2 / (2 * L_J_sym * constants.h)
+                order = 2
+                self.model.set_order(order)
+                self.model.set_potential(potential_expr, potential_param_symbols)
+                potential_params = {'L_J': L_J}
+                self.model.set_potential_params(potential_params, delta_min_guess=0.0)
+                delta = 1e-5
+                self.assertAlmostEqual(L_J, self.model.resonator_params['L_J'], delta=delta)
 
     def test_set_order(self):
         for order in [0, 1, 2, 1, 0]:
