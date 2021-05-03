@@ -10,6 +10,7 @@ class TestModel(TestCase):
     def setUp(self):
         np.random.seed(seed=0)
         self.model = Model()
+        self.Phi_0 = constants.physical_constants['mag. flux quantum'][0]
 
     def test_init(self):
         self.assertEqual(self.model.order, 0)
@@ -23,14 +24,31 @@ class TestModel(TestCase):
             with self.subTest(i=i):
                 delta_sym, L_J_sym = sympy.symbols('delta L_J')
                 potential_param_symbols = {'L_J': L_J_sym}
-                potential_expr = - (delta_sym * self.model.Phi_0) ** 2 / (2 * L_J_sym * constants.h)
+                potential_expr = (delta_sym * self.Phi_0) ** 2 / (2 * L_J_sym * constants.h)
                 order = 2
                 self.model.set_order(order)
                 self.model.set_potential(potential_expr, potential_param_symbols)
                 potential_params = {'L_J': L_J}
                 self.model.set_potential_params(potential_params, delta_min_guess=0.0)
                 delta = 1e-5
-                self.assertAlmostEqual(L_J, self.model.resonator_params['L_J'], delta=delta)
+                self.assertAlmostEqual(1.0, self.model.resonator_params['L_J']/L_J, delta=delta)
+
+    def test_c_2(self):
+        L_J_list = [1e-11, 1e-10, 1e-9]
+        for i, L_J in enumerate(L_J_list):
+            with self.subTest(i=i):
+                delta_sym, L_J_sym = sympy.symbols('delta L_J')
+                potential_param_symbols = {'L_J': L_J_sym}
+                potential_expr = (delta_sym * self.Phi_0) ** 2 / (2 * L_J_sym * constants.h)
+                order = 2
+                self.model.set_order(order)
+                self.model.set_potential(potential_expr, potential_param_symbols)
+                potential_params = {'L_J': L_J}
+                self.model.set_potential_params(potential_params, delta_min_guess=0.0)
+                c_2_target = self.model.Phi_0**2 / (2*L_J*constants.h)
+                delta = 1e-5
+                self.assertAlmostEqual(1.0, self.model.c_func(2)/c_2_target, delta=delta)
+
 
     def test_set_order(self):
         for order in [0, 1, 2, 1, 0]:

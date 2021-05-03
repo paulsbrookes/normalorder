@@ -331,7 +331,7 @@ class Model:
         m : int
         The index of the coefficient to be calculated.
 
-        phi : float
+        delta : float
         The value of the phase difference over the inductive element about which the Taylor expansion is calculated.
 
         Returns
