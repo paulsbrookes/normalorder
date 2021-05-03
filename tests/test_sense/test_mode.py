@@ -181,3 +181,44 @@ class Test(TestCase):
 
                 relative_error = calc_relative_error(inner_product, target)
                 self.assertAlmostEqual(relative_error, 0.0, places=places)
+
+    def test_perturb_embedded_inductance(self):
+        """
+        In this test we perturb the embedded inductance and check that the ratio of eigenfrequencies agrees with an
+        analytical formula based on the rotating wave approximation.
+        """
+
+        places = 3
+        n_subtests = 10
+
+        for i in range(n_subtests):
+            with self.subTest(i=i):
+                Z = 50 * np.random.uniform(0.1, 10.0)  # ohms
+                v_p = 1.1817e8 * np.random.uniform(0.1, 10.0)  # m/s
+                l = 0.007809801198766881  # m
+                L_0 = Z / v_p  # H/m
+                C_0 = 1 / (v_p * Z)  # F/m
+                x_J = 0.12481751778187578 * l  # m
+                L_J_1 = 7.696945473011622e-11 * np.random.uniform(0.0, 1.0)  # H
+                C_i = 0.0
+                C_o = 0.0
+
+                params_1 = {'C_i': C_i, 'C_o': C_o, 'L_0': L_0, 'C_0': C_0, 'x_J': x_J, 'l': l, 'L_J': L_J_1}
+                params_2 = params_1.copy()
+                DeltaL_J = 0.0005 * L_J_1
+                L_J_2 = L_J_1 + DeltaL_J
+                params_2['L_J'] = L_J_2
+                k_init = np.pi / (2 * l)
+
+                mode_1 = Mode()
+                mode_1.set_params(params_1)
+                mode_1.solve(k_init)
+
+                mode_2 = Mode()
+                mode_2.set_params(params_2)
+                mode_2.solve(k_init)
+
+                frequency_ratio = mode_2.frequency/mode_1.frequency
+                target_ratio = np.sqrt(1 - mode_1.L*DeltaL_J*mode_1.Delta**2 / (L_J_1**2))
+                relative_error = calc_relative_error(1-frequency_ratio, 1-target_ratio)
+                self.assertAlmostEqual(relative_error, 0.0, places=places)
