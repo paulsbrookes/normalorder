@@ -18,11 +18,10 @@ def apply_rwa(operator, mode_frequencies=None):
     mode_frequencies = np.array(mode_frequencies)
     rotation_frequencies = (mode_frequencies[:, np.newaxis] * np.array([-1, 1])[np.newaxis, :]).flatten()
     net_frequencies = list(map(lambda key: sum(np.array(key)*rotation_frequencies), operator.keys()))
-    spec = SortedDict()
+    operator_rwa = Operator(n_modes=operator.n_modes)
     for key, frequency, coeff in zip(operator.keys(), net_frequencies, operator.values()):
         if np.isclose(frequency, 0.0):
-            spec[key] = coeff
-    operator_rwa = Operator(spec=spec)
+            operator_rwa[key] = coeff
     return operator_rwa
 
 
@@ -117,10 +116,6 @@ def gen_delta_pow_series(exponent, order, potential_coeffs, x_sym):
         return delta_pow_series
 
 
-
-
-
-
 class Model:
 
     def __init__(self):
@@ -153,7 +148,7 @@ class Model:
         self.mode_numbers = {}
         self.decay_rates = {}
         self.decay_rate_syms = {}
-        self.delta = 0
+        self.delta = None
         self.drive_syms = {'f_d': sympy.Symbol('f_d'),
                            'epsilon': sympy.Symbol('epsilon')}
         self.Phi_0 = constants.physical_constants['mag. flux quantum'][0]
@@ -414,7 +409,7 @@ class Model:
 
     def generate_potential_derivative_op(self, potential_variable_name):
         potential_derivative_op = 0
-        for m in range(self.order+1):
+        for m in range(1, self.order+1):
             potential_derivative_op += self.dc_func(m, potential_variable_name)*self.delta**m
         potential_derivative_op = apply_rwa(potential_derivative_op)
         return potential_derivative_op

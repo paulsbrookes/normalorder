@@ -40,7 +40,6 @@ model_2.set_modes(['a'])
 
 print(model_2.modes['a'].frequency-model_1.modes['a'].frequency)
 
-test = model_1.dc_func(2,'L_J')*Delta_L_J*model_1.delta**2
-print(test[(1,1)])
-
-pass
+test1 = model_1.generate_potential_derivative_op('L_J')*Delta_L_J
+test2 = model_1.dc_func(2,'L_J')*Delta_L_J*model_1.delta**2
+print('done')

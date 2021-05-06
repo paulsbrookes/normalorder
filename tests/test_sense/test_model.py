@@ -1,4 +1,4 @@
-from normalorder.sense.model import Model
+from normalorder.sense.model import Model, apply_rwa
 import sympy
 import numpy as np
 from unittest import TestCase
@@ -86,6 +86,36 @@ class TestModel(TestCase):
         frequency_shift_from_Mode = model_2.modes['a'].frequency - model_1.modes['a'].frequency
         frequency_shift_from_dc_2 = (model_1.dc_func(2, 'L_J') * Delta_L_J * model_1.delta ** 2)[(1, 1)]
         self.assertAlmostEqual(1.0, frequency_shift_from_dc_2/frequency_shift_from_Mode, delta=1e-5)
+
+    def test_generate_potential_derivative_op(self):
+
+        Z = 50  # ohms
+        v_p = 1.1817e8  # m/s
+        l = 0.007809801198766881  # m
+        L_0 = Z / v_p  # H/m
+        C_0 = 1 / (v_p * Z)  # F/m
+        x_J = 0.002626535356654626  # m
+
+        beta_list = [1e11, 1e10, 1e9]
+        for i, beta in enumerate(beta_list):
+            with self.subTest(i=i):
+                delta_sym, beta_sym = sympy.symbols('delta beta')
+                potential_param_symbols = {'beta': beta_sym}
+                potential_expr = beta_sym * (delta_sym * self.Phi_0) ** 2 / (2 * constants.h)
+                order = 2
+                self.model.set_order(order)
+                self.model.set_resonator_params(x_J=x_J, L_0=L_0, l=l, C_0=C_0)
+                self.model.set_potential(potential_expr, potential_param_symbols)
+                potential_params = {'beta': beta}
+                self.model.set_potential_params(potential_params, delta_min_guess=0.0)
+                self.model.set_modes(['a'])
+                Delta_potential = self.model.generate_potential_derivative_op('beta')
+                target_op = self.Phi_0**2 * self.model.delta**2 * (1 / (2 * constants.h))
+                target_op = apply_rwa(target_op)
+                difference = target_op - Delta_potential
+                distance = sum(map(abs, difference.values()))
+                self.assertAlmostEqual(0.0, distance, delta=1e-5)
+
 
 
     def test_set_order(self):
