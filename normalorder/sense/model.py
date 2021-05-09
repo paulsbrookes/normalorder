@@ -415,7 +415,7 @@ class Model:
         self.res = res
         self.delta_min = res.x[0]
 
-    def generate_potential_hamiltonian(self):
+    def generate_potential_hamiltonian(self, rwa=True):
         """
         Generate the Hamiltonian describing the potential, i.e the inductive element, in terms of ladder operators of
         the resonator modes.
@@ -428,7 +428,8 @@ class Model:
 
         for m in range(3, self.order + 1):
             self.potential_hamiltonian += self.c_func(m) * self.delta**m
-        self.potential_hamiltonian = apply_rwa(self.potential_hamiltonian)
+        if rwa:
+            self.potential_hamiltonian = apply_rwa(self.potential_hamiltonian)
 
     def generate_potential_derivative_op(self, potential_variable_name):
         potential_derivative_op = 0
@@ -444,7 +445,7 @@ class Model:
         eom_expr = 2*sympy.pi*convert_op_to_expr(eom_op)
         return eom_expr
 
-    def generate_resonator_hamiltonian(self):
+    def generate_resonator_hamiltonian(self, drive=True):
         """
         Generate the Hamiltonian describing the resonator in terms of ladder operators of the resonator modes.
 
@@ -452,15 +453,17 @@ class Model:
         -------
         None
         """
-        self.resonator_hamiltonian = 1j*self.drive_syms['epsilon']*self.mode_ops[self.mode_names[0]].dag()
-        self.resonator_hamiltonian += self.resonator_hamiltonian.dag()
-
         for name in self.mode_names:
-            self.resonator_hamiltonian += (self.mode_frequencies[name]
-                                           - self.mode_numbers[name] * self.drive_syms['f_d'])\
-                                          * self.mode_ops[name].dag() * self.mode_ops[name]
+            self.resonator_hamiltonian += self.mode_frequencies[name] * self.mode_ops[name].dag() * self.mode_ops[name]
 
-    def generate_hamiltonian(self):
+        if drive:
+            self.resonator_hamiltonian = 1j*self.drive_syms['epsilon']*self.mode_ops[self.mode_names[0]].dag()
+            self.resonator_hamiltonian += self.resonator_hamiltonian.dag()
+            for name in self.mode_names:
+                self.resonator_hamiltonian -= self.mode_numbers[name] * self.drive_syms['f_d'] \
+                                              * self.mode_ops[name].dag() * self.mode_ops[name]
+
+    def generate_hamiltonian(self, drive=True):
         """
         Generate the Hamiltonian of the resonator and the inductive element in terms of ladder operators of the the
         resonator modes.
@@ -469,8 +472,8 @@ class Model:
         -------
         None
         """
-        self.generate_potential_hamiltonian()
-        self.generate_resonator_hamiltonian()
+        self.generate_potential_hamiltonian(rwa=drive)
+        self.generate_resonator_hamiltonian(drive=drive)
         self.hamiltonian = self.resonator_hamiltonian + self.potential_hamiltonian
 
     def generate_lindblad_ops(self):
