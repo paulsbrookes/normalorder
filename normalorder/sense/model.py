@@ -199,44 +199,67 @@ class Model:
         self.resonator_params['C_0'] = C_0
         self.resonator_params['x_J'] = x_J
 
-    def set_modes(self, names: list=['a'], indices=None, initial_wavevectors=None):
+    def set_modes(self, names: list=['a'], indices=None, initial_wavevectors=None, lumped_element=False):
 
-        if indices is None:
-            indices = np.arange(1, len(names)+1)
-        if initial_wavevectors is None:
-            initial_wavevectors = indices*np.pi/(2*self.resonator_params['l'])
-        self.modes = dict()
-        velocity = 1/np.sqrt(self.resonator_params['C_0']*self.resonator_params['L_0'])
+        if not lumped_element:
 
-        self.mode_numbers = {name: idx for name, idx in zip(names, indices)}
-        self.mode_names = names
-        self.mode_ops = {}
-        self.delta = 0.0
-        self.decay_rates = {}
-        self.decay_rate_syms = {}
-        C_total = 2 * self.resonator_params['l'] * self.resonator_params['C_0']
+            if indices is None:
+                indices = np.arange(1, len(names) + 1)
+            if initial_wavevectors is None:
+                initial_wavevectors = indices * np.pi / (2 * self.resonator_params['l'])
+            self.modes = dict()
 
-        for name, index, k_init in zip(names, indices, initial_wavevectors):
-            mode = Mode()
-            mode.set_params(self.resonator_params)
-            mode.solve(k_init)
-            self.modes[name] = mode
-            mode_frequency = mode.frequency
-            self.mode_frequencies[name] = mode_frequency
+            self.mode_numbers = {name: idx for name, idx in zip(names, indices)}
+            self.mode_names = names
+            self.mode_ops = {}
+            self.delta = 0.0
+            self.decay_rates = {}
+            self.decay_rate_syms = {}
+            C_total = 2 * self.resonator_params['l'] * self.resonator_params['C_0']
+
+            for name, index, k_init in zip(names, indices, initial_wavevectors):
+                mode = Mode()
+                mode.set_params(self.resonator_params)
+                mode.solve(k_init)
+                self.modes[name] = mode
+                mode_frequency = mode.frequency
+                self.mode_frequencies[name] = mode_frequency
+
+                specification = [[1] + 2 * len(names) * [0]]
+                specification[0][2 * self.mode_numbers[name]] = 1
+                op = Operator(spec=specification)
+                self.mode_ops[name] = op
+                self.delta += mode.Delta * np.sqrt(constants.hbar / (4 * np.pi * mode_frequency * C_total)) * (
+                            op + op.dag()) * (1 / self.Phi_0)
+
+                self.decay_rate_syms[name] = sympy.symbols('kappa_' + name)
+                self.decay_rates[name] = None
+
+            wavevectors = np.array([mode.k for mode in self.modes.values()])
+            if len(set(np.round(wavevectors, 10))) < len(names):
+                raise Exception('Some of the calculated wavevectors are not unique. '
+                                'Try different initial guesses to identify unique modes.')
+
+        else:
+
+            self.modes = dict()
+            self.mode_numbers = {names[0]: 1}
+            self.mode_names = names
+            self.mode_ops = {}
+            self.decay_rates = {}
+            self.decay_rate_syms = {}
+
+            self.L_prime = 1 / (1 / self.resonator_params['L_0'] + 1 / self.resonator_params['L_J'])
+            frequency = 1 / (np.sqrt(self.L_prime * self.resonator_params['C_0']) * 2 * np.pi)
+            self.mode_frequencies[names[0]] = frequency
 
             specification = [[1] + 2 * len(names) * [0]]
-            specification[0][2*self.mode_numbers[name]] = 1
+            specification[0][2] = 1
             op = Operator(spec=specification)
-            self.mode_ops[name] = op
-            self.delta += mode.Delta * np.sqrt(constants.hbar/(4*np.pi*mode_frequency*C_total))*(op+op.dag())*(1/self.Phi_0)
+            self.mode_ops[names[0]] = op
 
-            self.decay_rate_syms[name] = sympy.symbols('kappa_'+name)
-            self.decay_rates[name] = None
-
-        wavevectors = np.array([mode.k for mode in self.modes.values()])
-        if len(set(np.round(wavevectors, 10))) < len(names):
-            raise Exception('Some of the calculated wavevectors are not unique. '
-                            'Try different initial guesses to identify unique modes.')
+            self.delta = np.sqrt(constants.hbar / (4 * np.pi * frequency * self.resonator_params['C_0'])) * (
+                        op + op.dag()) * (1 / self.Phi_0)
 
     def set_decay_rates(self, decay_rates):
         self.decay_rates = decay_rates
