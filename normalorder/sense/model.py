@@ -127,7 +127,7 @@ class Model:
         self.potential_params = {}
         self.potential_param_substitutions = []
         self.c_expr = ()
-        self.delta_min = None
+        self.delta_0 = None
         self.__max_order = 0
         self.order = 0
         self.hamiltonian = None
@@ -296,7 +296,7 @@ class Model:
         self.potential_expr = potential_expr
         self.c_expr = tuple(self.generate_c_expr(m) for m in range(self.order + 2))
 
-    def set_potential_params(self, params: dict, delta_min_guess: float=None):
+    def set_potential_params(self, params: dict, delta_min_guess: float=None, delta_min_fix):
         """
         Supply the values of the parameters which specify the form of the potential and find the minimum of that
         potential.
@@ -315,7 +315,7 @@ class Model:
                                               for key in self.potential_syms.keys()]
         self.find_delta_min(delta_min_guess)
 
-        substitutions = [(delta_sym, self.delta_min)]
+        substitutions = [(delta_sym, self.delta_0)]
         for name in self.potential_syms.keys():
             pair = (self.potential_syms[name], self.potential_params[name])
             substitutions.append(pair)
@@ -364,7 +364,7 @@ class Model:
         """
 
         if delta is None:
-            delta = self.delta_min
+            delta = self.delta_0
 
         potential_param_substitutions = []
         for param_name, param_value in substitutions.items():
@@ -380,7 +380,7 @@ class Model:
     def dc_func(self, m: int, potential_variable_name):
 
         dc_expr = diff(self.c_expr[m], self.potential_syms[potential_variable_name])
-        dc = np.float(dc_expr.subs(self.potential_param_substitutions + [(delta_sym, self.delta_min)]))
+        dc = np.float(dc_expr.subs(self.potential_param_substitutions + [(delta_sym, self.delta_0)]))
         return dc
 
     def potential_func(self, phi: float):
@@ -425,7 +425,10 @@ class Model:
             delta_min_guess = np.array([delta_min_guess])
         res = optimize.root(wrapper, delta_min_guess, **kwargs)
         self.res = res
-        self.delta_min = res.x[0]
+        self.delta_0 = res.x[0]
+
+    def set_delta_0(self, delta_0: float):
+        self.delta_0 = delta_0
 
     def generate_potential_hamiltonian(self, rwa=True, substitutions={}, orders=None, inplace=True):
         """
