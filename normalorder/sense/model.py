@@ -118,7 +118,7 @@ def gen_delta_pow_series(exponent, order, potential_coeffs, x_sym):
 
 class Model:
 
-    def __init__(self):
+    def __init__(self, lumped_element=False):
         self.c_sym = ()
         self.resonator_params = {}
         self.resonator_syms = {}
@@ -152,6 +152,7 @@ class Model:
         self.drive_syms = {'f_d': sympy.Symbol('f_d'),
                            'epsilon': sympy.Symbol('epsilon')}
         self.Phi_0 = constants.physical_constants['mag. flux quantum'][0]
+        self.lumped_element = lumped_element
 
     def set_order(self, order: int):
         """
@@ -173,7 +174,7 @@ class Model:
         self.order = order
         self.c_sym = c_sym[:order+2]
 
-    def set_resonator_params(self, l: float=0.5, L_0: float=1.0, C_0: float=1.0, x_J: float=0.0):
+    def set_resonator_params(self, l: float=None, L_0: float=None, C_0: float=None, x_J: float=None):
         """
         Set the parameters of the resonator.
 
@@ -194,15 +195,20 @@ class Model:
         -------
         None
         """
-        self.resonator_params['l'] = l
-        self.resonator_params['L_0'] = L_0
-        self.resonator_params['C_0'] = C_0
-        self.resonator_params['x_J'] = x_J
 
-    def set_modes(self, names: list=['a'], indices=None, initial_wavevectors=None, lumped_element=False):
+        if self.lumped_element:
+            if l is not None or x_J is not None:
+                raise Exception('l and x_J should not be specified for a lumped element resonator.')
+            self.resonator_params['C_0'] = C_0
+        else:
+            self.resonator_params['l'] = l
+            self.resonator_params['L_0'] = L_0
+            self.resonator_params['C_0'] = C_0
+            self.resonator_params['x_J'] = x_J
 
-        if not lumped_element:
+    def set_modes(self, names: list=['a'], indices=None, initial_wavevectors=None):
 
+        if not self.lumped_element:
             if indices is None:
                 indices = np.arange(1, len(names) + 1)
             if initial_wavevectors is None:
@@ -241,7 +247,6 @@ class Model:
                                 'Try different initial guesses to identify unique modes.')
 
         else:
-
             self.modes = dict()
             self.mode_numbers = {names[0]: 1}
             self.mode_names = names
@@ -249,7 +254,7 @@ class Model:
             self.decay_rates = {}
             self.decay_rate_syms = {}
 
-            self.L_prime = 1 / (1 / self.resonator_params['L_0'] + 1 / self.resonator_params['L_J'])
+            self.L_prime = self.resonator_params['L_J']
             frequency = 1 / (np.sqrt(self.L_prime * self.resonator_params['C_0']) * 2 * np.pi)
             self.mode_frequencies[names[0]] = frequency
 
