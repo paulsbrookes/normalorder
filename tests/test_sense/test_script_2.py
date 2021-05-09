@@ -16,10 +16,10 @@ L = 6.740357146050338e-10
 C_0 = 2.6435816869821043e-12
 
 f_J = 1e9 # Hz
-phi_ext = 0.1
-Delta_param = 1e8
+phi_ext = 0.5
+Delta = 1e8
 nu = 1.0
-delta_0 = 0.00020157441417927727
+delta_0 = 0.1
 
 potential_params_1 = {'f_J': f_J, 'phi_ext': phi_ext, 'nu': nu, 'L': L}
 model_1 = Model(lumped_element=True)
@@ -31,12 +31,12 @@ model_1.set_modes(names=['a'])
 model_1.generate_hamiltonian(drive=False)
 
 potential_1 = model_1.generate_potential_hamiltonian(inplace=False, orders=[0,1,2], rwa=False)
-substitutions = {'f_J': f_J+Delta_param}
+substitutions = {'f_J': f_J+Delta}
 potential_1_prime = model_1.generate_potential_hamiltonian(inplace=False, orders=[0,1,2], substitutions=substitutions, rwa=False)
 Delta_potential = potential_1_prime - potential_1
 ham_prime = model_1.hamiltonian + Delta_potential
 
-potential_params_2 = {'f_J': f_J+Delta_param, 'phi_ext': phi_ext, 'nu': nu, 'L': L}
+potential_params_2 = {'f_J': f_J+Delta, 'phi_ext': phi_ext, 'nu': nu, 'L': L}
 model_2 = Model(lumped_element=True)
 model_2.set_order(order)
 model_2.set_potential(potential_expr, potential_param_symbols)
@@ -46,14 +46,13 @@ model_2.set_modes(names=['a'])
 model_2.generate_hamiltonian(drive=False)
 ham_2 = model_2.hamiltonian
 
-Delta = ham_prime[(2, 0)]
-omega_a = ham_prime[(1, 1)]
-mu = ham_prime[(1, 0)]
+Delta = ham_prime[(2,0)]
+omega_a = ham_prime[(1,1)]
+mu = ham_prime[(1,0)]
 r = 0.5*np.arctanh(2*Delta/omega_a)
 omega_b = omega_a / np.cosh(2*r)
 s = mu / (omega_b*(np.cosh(r)+np.sinh(r)))
 
-print((omega_b-ham_2[(1,1)]))
-print((omega_b-ham_2[(1,1)])/omega_b)
+print(omega_b - ham_2[(1,1)])
 
 

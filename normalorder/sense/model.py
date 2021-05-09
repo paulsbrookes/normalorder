@@ -296,7 +296,7 @@ class Model:
         self.potential_expr = potential_expr
         self.c_expr = tuple(self.generate_c_expr(m) for m in range(self.order + 2))
 
-    def set_potential_params(self, params: dict, delta_min_guess: float=None):
+    def set_potential_params(self, params: dict, delta_min_guess: float=None, delta_0: float=None):
         """
         Supply the values of the parameters which specify the form of the potential and find the minimum of that
         potential.
@@ -310,10 +310,18 @@ class Model:
         -------
         None
         """
+
+        if delta_min_guess is not None and delta_0 is not None:
+            raise Exception('Only one of delta_min_guess and delta_0 must be specified')
+
         self.potential_params = params
         self.potential_param_substitutions = [(self.potential_syms[key], self.potential_params[key])
                                               for key in self.potential_syms.keys()]
-        self.find_delta_min(delta_min_guess)
+
+        if delta_min_guess is not None:
+            self.find_delta_min(delta_min_guess)
+        else:
+            self.delta_0 = delta_0
 
         substitutions = [(delta_sym, self.delta_0)]
         for name in self.potential_syms.keys():
@@ -427,9 +435,6 @@ class Model:
         self.res = res
         self.delta_0 = res.x[0]
 
-    def set_delta_0(self, delta_0: float):
-        self.delta_0 = delta_0
-
     def generate_potential_hamiltonian(self, rwa=True, substitutions={}, orders=None, inplace=True):
         """
         Generate the Hamiltonian describing the potential, i.e the inductive element, in terms of ladder operators of
@@ -445,7 +450,7 @@ class Model:
         for m in orders:
             potential_hamiltonian += self.c_func(m, substitutions=substitutions) * self.delta**m
         if rwa:
-            potential_hamiltonian = apply_rwa(self.potential_hamiltonian)
+            potential_hamiltonian = apply_rwa(potential_hamiltonian)
         if inplace:
             self.potential_hamiltonian = potential_hamiltonian
         else:
@@ -473,6 +478,7 @@ class Model:
         -------
         None
         """
+        self.resonator_hamiltonian = 0.0
         for name in self.mode_names:
             self.resonator_hamiltonian += self.mode_frequencies[name] * self.mode_ops[name].dag() * self.mode_ops[name]
 
