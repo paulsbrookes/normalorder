@@ -382,4 +382,3 @@ class TestModel(TestCase):
         self.model.set_potential_params(potential_params)
         self.model.Dphimin_Dparam_func('phi_ext')
         self.model.Dg_at_phimin_Dparam_func(3, 'phi_ext')
-

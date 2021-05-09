@@ -339,7 +339,7 @@ class Model:
         """
         return diff(self.potential_expr, delta_sym, m) / (special.factorial(m))
 
-    def c_func(self, m: int, delta=None):
+    def c_func(self, m: int, delta=None, substitutions={}):
         """
         Calculate the numerical value of a coefficient of the Taylor expansion of the potential in terms of the phase
         difference across the inductive element.
@@ -361,8 +361,15 @@ class Model:
         if delta is None:
             delta = self.delta_min
 
-        substitutions = self.potential_param_substitutions + [(delta_sym, delta)]
-        c_value = np.float(self.c_expr[m].subs(substitutions).evalf())
+        potential_param_substitutions = []
+        for param_name, param_value in substitutions.items():
+            potential_param_substitutions.append((self.potential_syms[param_name], param_value))
+        for param_name, param_sym in self.potential_syms.items():
+            if param_name not in substitutions.keys():
+                potential_param_substitutions.append((param_sym, self.potential_params[param_name]))
+
+        potential_param_substitutions += [(delta_sym, delta)]
+        c_value = np.float(self.c_expr[m].subs(potential_param_substitutions).evalf())
         return c_value
 
     def dc_func(self, m: int, potential_variable_name):
@@ -415,7 +422,7 @@ class Model:
         self.res = res
         self.delta_min = res.x[0]
 
-    def generate_potential_hamiltonian(self, rwa=True):
+    def generate_potential_hamiltonian(self, rwa=True, substitutions={}, orders=None, inplace=True):
         """
         Generate the Hamiltonian describing the potential, i.e the inductive element, in terms of ladder operators of
         the resonator modes.
@@ -424,12 +431,17 @@ class Model:
         -------
         None
         """
-        self.potential_hamiltonian = 0.0*self.mode_ops['a']
-
-        for m in range(3, self.order + 1):
-            self.potential_hamiltonian += self.c_func(m) * self.delta**m
+        potential_hamiltonian = 0.0*self.mode_ops['a']
+        if orders is None:
+            orders = [1] + list(range(3, self.order+1))
+        for m in orders:
+            potential_hamiltonian += self.c_func(m, substitutions=substitutions) * self.delta**m
         if rwa:
-            self.potential_hamiltonian = apply_rwa(self.potential_hamiltonian)
+            potential_hamiltonian = apply_rwa(self.potential_hamiltonian)
+        if inplace:
+            self.potential_hamiltonian = potential_hamiltonian
+        else:
+            return potential_hamiltonian
 
     def generate_potential_derivative_op(self, potential_variable_name):
         potential_derivative_op = 0
