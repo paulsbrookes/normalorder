@@ -296,7 +296,7 @@ class Model:
         self.potential_expr = potential_expr
         self.c_expr = tuple(self.generate_c_expr(m) for m in range(self.order + 2))
 
-    def set_potential_params(self, params: dict, delta_min_guess: float=None, delta_min_fix):
+    def set_potential_params(self, params: dict, delta_min_guess: float=None):
         """
         Supply the values of the parameters which specify the form of the potential and find the minimum of that
         potential.
