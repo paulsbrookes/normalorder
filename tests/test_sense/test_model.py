@@ -6,6 +6,21 @@ from unittest import TestCase
 from scipy import constants
 
 
+def reform_ham(ham):
+    Delta = ham.get((2, 0), 0)
+    mu = ham.get((1, 0), 0)
+    omega_a = ham.get((1, 1), 0)
+    r = 0.5 * np.arctanh(2 * Delta / omega_a)
+    omega_b = omega_a / np.cosh(2 * r)
+    s = mu / (omega_b * (np.cosh(r) + np.sinh(r)))
+    b = Operator([[1.0, 0, 1]])
+    a = np.cosh(r) * b - np.sinh(r) * b.dag() - s * (np.cosh(r) - np.sinh(r))
+    new_ham = Operator(n_modes=1)
+    for key, coeff in ham.items():
+        new_ham += a.dag() ** key[0] * a ** key[1] * coeff
+    return new_ham
+
+
 class TestModel(TestCase):
 
     def setUp(self):
@@ -118,21 +133,6 @@ class TestModel(TestCase):
                 self.assertAlmostEqual(0.0, distance, delta=1e-5)
 
     def test_different_delta_0_to_produce_same_hamiltonian(self):
-
-        def reform_ham(ham):
-            Delta = ham.get((2, 0), 0)
-            mu = ham.get((1, 0), 0)
-            omega_a = ham.get((1, 1), 0)
-            r = 0.5 * np.arctanh(2 * Delta / omega_a)
-            omega_b = omega_a / np.cosh(2 * r)
-            s = mu / (omega_b * (np.cosh(r) + np.sinh(r)))
-            b = Operator([[1.0, 0, 1]])
-            a = np.cosh(r) * b - np.sinh(r) * b.dag() - s * (np.cosh(r) - np.sinh(r))
-            new_ham = Operator(n_modes=1)
-            for key, coeff in ham.items():
-                new_ham += a.dag() ** key[0] * a ** key[1] * coeff
-            return new_ham
-
         order = 4
         delta_sym = sympy.symbols('delta')
         potential_expr = 5e12 * delta_sym ** 2 + 5e9 * delta_sym ** 3 + 5e6 * delta_sym ** 4
@@ -162,10 +162,58 @@ class TestModel(TestCase):
             ham_1_prime = reform_ham(ham_1_prime)
             ham_2_prime = reform_ham(ham_2_prime)
         difference = ham_1_prime - ham_2_prime
-        difference[(0,0)] = 0.0
+        difference[(0, 0)] = 0.0
         for key, value in difference.items():
             self.assertAlmostEqual(value, 0.0, delta=1e-5)
 
+    def test_changing_the_parameters_of_the_potential(self):
+        order = 4
+        delta_sym, beta_sym = sympy.symbols('delta beta')
+        potential_param_symbols = {'beta': beta_sym}
+        potential_expr = (5e12 * (delta_sym - beta_sym) ** 2 + 5e9 * (delta_sym - beta_sym) ** 3 + 5e6 * (
+                    delta_sym - beta_sym) ** 4)
+
+        L_0 = 6.740357146050338e-10
+        C_0 = 2.6435816869821043e-12
+
+        beta = 1e-2 * np.random.randn()
+        Delta_beta = 1e-2 * np.random.randn()
+        delta_min_guess = 0.0
+
+        potential_params_1 = {'beta': beta}
+        model_1 = Model(lumped_element=True)
+        model_1.set_order(order)
+        model_1.set_potential(potential_expr, potential_param_symbols)
+        model_1.set_resonator_params(L_0=L_0, C_0=C_0)
+        model_1.set_potential_params(potential_params_1, delta_min_guess=delta_min_guess)
+        model_1.set_modes(names=['a'])
+        model_1.generate_hamiltonian(drive=False)
+
+        potential_params_2 = {'beta': beta + Delta_beta}
+        model_2 = Model(lumped_element=True)
+        model_2.set_order(order)
+        model_2.set_potential(potential_expr, potential_param_symbols)
+        model_2.set_resonator_params(L_0=L_0, C_0=C_0)
+        model_2.set_potential_params(potential_params_2, delta_min_guess=delta_min_guess)
+        model_2.set_modes(names=['a'])
+        model_2.generate_hamiltonian(drive=False)
+
+        potential_1 = model_1.generate_potential_hamiltonian(inplace=False, orders=range(order + 1), rwa=False)
+        potential_1_prime = model_1.generate_potential_hamiltonian(inplace=False,
+                                                                   substitutions={'beta': beta + Delta_beta},
+                                                                   orders=range(order + 1), rwa=False)
+        ham_1_prime = model_1.hamiltonian + potential_1_prime - potential_1
+        ham_2 = model_2.hamiltonian
+
+        ham_1_ref = ham_1_prime
+        ham_2_ref = ham_2
+        for i in range(10):
+            ham_1_ref = reform_ham(ham_1_ref)
+            ham_2_ref = reform_ham(ham_2_ref)
+        difference = ham_1_ref - ham_2_ref
+        difference[(0, 0)] = 0.0
+        for key, value in difference.items():
+            self.assertAlmostEqual(value, 0.0, delta=1e-7)
 
 
 
