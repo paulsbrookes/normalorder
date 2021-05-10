@@ -12,10 +12,18 @@ delta_sym, f_J_sym, phi_ext_sym, nu_sym, L_sym = sympy.symbols('delta f_J phi_ex
 potential_param_symbols = {'f_J': f_J_sym, 'phi_ext': phi_ext_sym, 'nu': nu_sym, 'L': L_sym}
 potential_expr = ((delta_sym*Phi_0)**2 / (2*L_sym*constants.h)) - f_J_sym * nu_sym * sympy.cos(2*sympy.pi*delta_sym) - f_J_sym * n * sympy.cos(2*sympy.pi*(delta_sym-phi_ext_sym)/n)
 
+potential_expr = -7.008178211387194e-08 * delta_sym + 4816115753545.432*delta_sym**2
+potential_expr += f_J_sym*(-1.9298686356167531*delta_sym + 29.127674045528007*delta_sym**2)
+potential_expr += f_J_sym**2 *(-1.9298686356167531*delta_sym + 29.127674045528007*delta_sym**2)
+potential_expr += f_J_sym**3 *(-1.9298686356167531*delta_sym + 29.127674045528007*delta_sym**2)
+
+
+
+
 L = 6.740357146050338e-10
 C_0 = 2.6435816869821043e-12
 
-f_J = 1e9 # Hz
+f_J = 0.0 # Hz
 phi_ext = 0.1
 Delta_param = 1e8
 nu = 1.0
@@ -29,6 +37,7 @@ model_1.set_resonator_params(C_0=C_0)
 model_1.set_potential_params(potential_params_1, delta_min_guess=delta_0)
 model_1.set_modes(names=['a'])
 model_1.generate_hamiltonian(drive=False)
+print(model_1.c_func(1),model_1.c_func(2),model_1.dc_func(1,'f_J'),model_1.dc_func(2,'f_J'))
 
 potential_1 = model_1.generate_potential_hamiltonian(inplace=False, orders=list(range(order+1)), rwa=False)
 substitutions = {'f_J': f_J+Delta_param}
