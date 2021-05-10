@@ -25,42 +25,26 @@ f_J = 0.0 # Hz
 phi_ext = 0.1
 Delta_param = 1e8
 nu = 1.0
-delta_0 = 0.00020157441417927727
+delta_0 = 0.2
 
-potential_params_1 = {'f_J': f_J, 'phi_ext': phi_ext, 'nu': nu, 'L': L}
+potential_params = {'f_J': f_J, 'phi_ext': phi_ext, 'nu': nu, 'L': L}
 model_1 = Model(lumped_element=True)
 model_1.set_order(order)
 model_1.set_potential(potential_expr, potential_param_symbols)
 model_1.set_resonator_params(C_0=C_0)
-model_1.set_potential_params(potential_params_1, delta_min_guess=delta_0)
+model_1.set_potential_params(potential_params, delta_min_guess=delta_0)
 model_1.set_modes(names=['a'])
 model_1.generate_hamiltonian(drive=False)
-print(model_1.c_func(1),model_1.c_func(2),model_1.dc_func(1,'f_J'),model_1.dc_func(2,'f_J'))
+ham_1 = model_1.hamiltonian
 
-potential_1 = model_1.generate_potential_hamiltonian(inplace=False, orders=list(range(order+1)), rwa=False)
-substitutions = {'f_J': f_J+Delta_param}
-potential_1_prime = model_1.generate_potential_hamiltonian(inplace=False, orders=list(range(order+1)), substitutions=substitutions, rwa=False)
-Delta_potential = potential_1_prime - potential_1
-ham_prime = model_1.hamiltonian + Delta_potential
-
-potential_params_2 = {'f_J': f_J+Delta_param, 'phi_ext': phi_ext, 'nu': nu, 'L': L}
 model_2 = Model(lumped_element=True)
 model_2.set_order(order)
 model_2.set_potential(potential_expr, potential_param_symbols)
 model_2.set_resonator_params(C_0=C_0)
-model_2.set_potential_params(potential_params_2, delta_min_guess=delta_0)
+model_2.set_potential_params(potential_params, delta_0=delta_0)
 model_2.set_modes(names=['a'])
 model_2.generate_hamiltonian(drive=False)
 ham_2 = model_2.hamiltonian
 
-Delta = ham_prime[(2, 0)]
-omega_a = ham_prime[(1, 1)]
-mu = ham_prime[(1, 0)]
-r = 0.5*np.arctanh(2*Delta/omega_a)
-omega_b = omega_a / np.cosh(2*r)
-s = mu / (omega_b*(np.cosh(r)+np.sinh(r)))
-
-print((omega_b-ham_2[(1,1)]))
-print((omega_b-ham_2[(1,1)])/omega_b)
-
+print(model_2.delta_0-model_1.delta_0)
 

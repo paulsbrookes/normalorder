@@ -29,6 +29,7 @@ model_1.set_resonator_params(C_0=C_0)
 model_1.set_potential_params(potential_params_1, delta_min_guess=delta_0)
 model_1.set_modes(names=['a'])
 model_1.generate_hamiltonian(drive=False)
+print(model_1.c_func(1),model_1.c_func(2),model_1.c_func(3),model_1.dc_func(1,'f_J'),model_1.dc_func(2,'f_J'),model_1.dc_func(3,'f_J'))
 
 potential_1 = model_1.generate_potential_hamiltonian(inplace=False, orders=list(range(order+1)), rwa=False)
 substitutions = {'f_J': f_J+Delta_param}
