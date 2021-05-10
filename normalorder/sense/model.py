@@ -197,8 +197,10 @@ class Model:
         """
 
         if self.lumped_element:
-            if l is not None or x_J is not None:
-                raise Exception('l and x_J should not be specified for a lumped element resonator.')
+            if l is not None or x_J is not None or L_0 is not None:
+                raise Exception(
+                    'Only C_0 should be specified for a lumped element resonator. '
+                    'The inductance should be included in the potential')
             self.resonator_params['C_0'] = C_0
         else:
             self.resonator_params['l'] = l

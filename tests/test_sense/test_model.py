@@ -173,7 +173,6 @@ class TestModel(TestCase):
         potential_expr = (5e12 * (delta_sym - beta_sym) ** 2 + 5e9 * (delta_sym - beta_sym) ** 3 + 5e6 * (
                     delta_sym - beta_sym) ** 4)
 
-        L_0 = 6.740357146050338e-10
         C_0 = 2.6435816869821043e-12
 
         beta = 1e-2 * np.random.randn()
@@ -184,7 +183,7 @@ class TestModel(TestCase):
         model_1 = Model(lumped_element=True)
         model_1.set_order(order)
         model_1.set_potential(potential_expr, potential_param_symbols)
-        model_1.set_resonator_params(L_0=L_0, C_0=C_0)
+        model_1.set_resonator_params(C_0=C_0)
         model_1.set_potential_params(potential_params_1, delta_min_guess=delta_min_guess)
         model_1.set_modes(names=['a'])
         model_1.generate_hamiltonian(drive=False)
@@ -193,7 +192,7 @@ class TestModel(TestCase):
         model_2 = Model(lumped_element=True)
         model_2.set_order(order)
         model_2.set_potential(potential_expr, potential_param_symbols)
-        model_2.set_resonator_params(L_0=L_0, C_0=C_0)
+        model_2.set_resonator_params(C_0=C_0)
         model_2.set_potential_params(potential_params_2, delta_min_guess=delta_min_guess)
         model_2.set_modes(names=['a'])
         model_2.generate_hamiltonian(drive=False)
