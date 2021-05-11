@@ -1,6 +1,6 @@
 from unittest import TestCase
 import numpy as np
-from normalorder.sense.mode import Mode
+from normalorder.sense import Mode
 from scipy.integrate import quad
 
 
