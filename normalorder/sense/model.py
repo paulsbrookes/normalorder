@@ -4,12 +4,10 @@ from scipy import special, optimize, constants
 import numpy as np
 import functools
 from normalorder.operator.boson import Operator
-from sortedcontainers import SortedDict
-from .mode import Mode
+from normalorder.sense.mode import Mode
+import matplotlib.pyplot as plt
 
 delta_sym = symbols('delta')
-
-
 
 
 def apply_rwa(operator, mode_frequencies=None):
@@ -590,6 +588,17 @@ class Model:
                 return Dfields
         self.eom = eom
 
+    def plot_potential(self, delta_limits=[-0.5, 0.5], n_points=51, ax=None):
+        delta_array = np.linspace(*delta_limits, n_points)
+        potential_array = np.array([self.potential_func(delta) for delta in delta_array])
+        if ax is None:
+            fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+        ax.plot(delta_array, potential_array)
+        ax.set_xlabel(r'$\delta$')
+        ax.set_ylabel(r'$U(\delta)$')
+        if self.delta_0 is not None:
+            ax.axvline(self.delta_0)
+        return ax
 
 def package_substitutions(syms, params):
     substitutions = []
