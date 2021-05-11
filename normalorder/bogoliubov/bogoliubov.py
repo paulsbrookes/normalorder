@@ -2,6 +2,8 @@ import numpy as np
 from normalorder.operator.boson import Operator
 import itertools
 
+#tools based on https://arxiv.org/pdf/quant-ph/0109020.pdf
+
 
 def find_bogoliubov_representation(hamiltonian):
     n_modes = hamiltonian.n_modes
