@@ -434,6 +434,9 @@ class Model:
         res = optimize.root(wrapper, delta_min_guess, **kwargs)
         self.res = res
         self.delta_0 = res.x[0]
+        if self.c_func(2) < 0:
+            raise Exception('The second derivative is less than zero. This indicates you may have found a maximum, '
+                            'rather than a minimum. Please use an alternative value for delta_min_guess.')
 
     def generate_potential_hamiltonian(self, rwa=True, substitutions={}, orders=None, inplace=True):
         """
