@@ -6,6 +6,7 @@ import functools
 from normalorder.operator.boson import Operator
 from normalorder.sense.mode import Mode
 import matplotlib.pyplot as plt
+import string
 
 delta_sym = symbols('delta')
 
@@ -151,6 +152,7 @@ class Model:
                            'epsilon': sympy.Symbol('epsilon')}
         self.Phi_0 = constants.physical_constants['mag. flux quantum'][0]
         self.lumped_element = lumped_element
+        self.combined_eom_exprs = {}
 
     def set_order(self, order: int):
         """
@@ -470,7 +472,7 @@ class Model:
         potential_derivative_op = self.generate_potential_derivative_op(potential_variable_name)
         mode_op = self.mode_ops[mode_name]
         eom_op = 1j * (potential_derivative_op * mode_op - mode_op * potential_derivative_op)
-        eom_expr = 2*sympy.pi*convert_op_to_expr(eom_op)
+        eom_expr = 2*sympy.pi*convert_op_to_expr(eom_op, mode_names=self.mode_names)
         return eom_expr
 
     def generate_resonator_hamiltonian(self, drive=True):
@@ -486,8 +488,9 @@ class Model:
             self.resonator_hamiltonian += self.mode_frequencies[name] * self.mode_ops[name].dag() * self.mode_ops[name]
 
         if drive:
-            self.resonator_hamiltonian = 1j*self.drive_syms['epsilon']*self.mode_ops[self.mode_names[0]].dag()
-            self.resonator_hamiltonian += self.resonator_hamiltonian.dag()
+            drive_hamiltonian = 1j*self.drive_syms['epsilon']*self.mode_ops[self.mode_names[0]].dag()
+            drive_hamiltonian += drive_hamiltonian.dag()
+            self.resonator_hamiltonian += drive_hamiltonian
             for name in self.mode_names:
                 self.resonator_hamiltonian -= self.mode_numbers[name] * self.drive_syms['f_d'] \
                                               * self.mode_ops[name].dag() * self.mode_ops[name]
@@ -545,7 +548,7 @@ class Model:
         """
         self.eom_exprs = {}
         for mode_name, eom_op in self.eom_ops.items():
-            eom_expr = convert_op_to_expr(eom_op)
+            eom_expr = convert_op_to_expr(eom_op, mode_names=self.mode_names)
             self.eom_exprs[mode_name] = eom_expr
 
     def generate_param_substitutions(self):
@@ -556,7 +559,7 @@ class Model:
         substitutions.append((self.drive_syms['epsilon'], self.drive_params['epsilon']))
         self.param_substitutions = substitutions
 
-    def generate_eom(self, potential_variables: list=[], timescale=1e-9, custom=None):
+    def generate_eom(self, potential_variables: list=[], timescale=1e-9):
         """
         Convert the sympy expressions describing the equations of motion of the fields into equations of motion which
         are suitable for numerical integration.
@@ -575,7 +578,7 @@ class Model:
             combined_eom_expr = eom_expr
             for sym, sym_name in zip(potential_variable_syms, potential_variables):
                 combined_eom_expr += sym * self.generate_potential_derivative_eom_expr(sym_name, mode_name)
-                combined_eom_expr += sym*custom*sympy.conjugate(field_syms[0])*field_syms[0]
+            self.combined_eom_exprs[mode_name] = combined_eom_expr
             for pair in self.param_substitutions:
                 combined_eom_expr = combined_eom_expr.replace(*pair)
             eom_func = sympy.lambdify(combined_syms, combined_eom_expr*timescale)
@@ -610,24 +613,27 @@ def package_substitutions(syms, params):
     return substitutions
 
 
-def convert_op_to_expr(op, return_syms=False):
-    field_syms = sympy.symbols(op.modes)
+def convert_op_to_expr(op, return_syms=False, mode_names=None, mode_syms=None):
+    if mode_names is not None and mode_syms is not None:
+        raise Exception('mode_names and mode_syms should not both be specified.')
+
+    if mode_syms is None:
+        if mode_names is None:
+            mode_names = [letter for letter in string.ascii_lowercase[:op.n_modes]]
+        mode_syms = sympy.symbols(mode_names)
+
     field_array = []
-    for sym in field_syms:
+    for sym in mode_syms:
         field_array += [sympy.conjugate(sym), sym]
     field_array = np.array(field_array)
-    field_names = []
-    for mode in op.modes:
-        field_names += [mode+'_dag', mode]
 
     expr = 0
-    for idx in range(op.data.shape[0]):
-        exponents = op.data[field_names].iloc[idx].values
-        term = op.data['coeff'].iloc[idx]*np.product(field_array**exponents)
+    for exponents, coeff in op.items():
+        term = coeff * np.product(field_array ** exponents)
         expr += term
 
     if return_syms:
-        return expr, field_syms
+        return expr, mode_syms
     else:
         return expr
 
