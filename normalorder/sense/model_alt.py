@@ -138,7 +138,6 @@ class Model:
         self.eom = None
         self.drive_params = {}
         self.drive_syms = {}
-        self.param_substitutions = []
         self.mode_names = ()
         self.modes = {}
         self.mode_frequencies = {}
@@ -153,6 +152,8 @@ class Model:
         self.lumped_element = lumped_element
         self.combined_eom_exprs = {}
         self.delta_sym = symbols('delta')
+        self.c_sub = None
+        self.drive_decay_subs = None
 
     def set_order(self, order: int):
         """
@@ -300,6 +301,7 @@ class Model:
         potential_param_syms = [key for key in self.potential_syms.keys()]
         self.c_sym = tuple(sympy.Function('c_' + str(m))(*potential_param_syms, self.delta_sym) for m in range(self.order + 1))
         self.c_expr = tuple(self.generate_c_expr(m) for m in range(self.order + 1))
+        self.c_sub = [(sym, expr) for sym, expr in zip(self.c_sym, self.c_expr)]
 
     def set_potential_params(self, params: dict, delta_min_guess: float = None, delta_0: float = None):
         """
@@ -564,13 +566,13 @@ class Model:
             eom_expr = convert_op_to_expr(eom_op, mode_names=self.mode_names)
             self.eom_exprs[mode_name] = eom_expr
 
-    def generate_param_substitutions(self):
+    def generate_drive_decay_subs(self):
         substitutions = []
         for name in self.mode_names:
             substitutions.append((self.decay_rate_syms[name], self.decay_rates[name]))
         substitutions.append((self.drive_syms['f_d'], self.drive_params['f_d']))
         substitutions.append((self.drive_syms['epsilon'], self.drive_params['epsilon']))
-        self.param_substitutions = substitutions
+        self.drive_decay_subs = substitutions
 
     def generate_eom(self, potential_variables: list = [], timescale=1e-9):
         """
