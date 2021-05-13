@@ -7,6 +7,7 @@ from normalorder.operator.boson import Operator
 from normalorder.sense.mode import Mode
 import matplotlib.pyplot as plt
 import string
+from sortedcontainers import SortedDict
 
 delta_sym = symbols('delta')
 
@@ -508,7 +509,7 @@ class Model:
         self.generate_potential_hamiltonian(rwa=drive)
         self.generate_resonator_hamiltonian(drive=drive)
 
-        self.potential_variable_syms = {sym_name: sympy.Symbol('delta_' + sym_name) for sym_name in potential_variables}
+        self.potential_variable_syms = SortedDict({sym_name: sympy.Symbol('delta_' + sym_name) for sym_name in potential_variables})
         self.potential_derivative = 0
         for name, sym in self.potential_variable_syms.items():
             self.potential_derivative += sym*self.generate_potential_derivative_op(name)
@@ -566,7 +567,7 @@ class Model:
         substitutions.append((self.drive_syms['epsilon'], self.drive_params['epsilon']))
         self.param_substitutions = substitutions
 
-    def generate_eom(self, potential_variables: list=[], timescale=1e-9):
+    def generate_eom(self, timescale=1e-9):
         """
         Convert the sympy expressions describing the equations of motion of the fields into equations of motion which
         are suitable for numerical integration.
@@ -578,8 +579,8 @@ class Model:
         eom_funcs = {}
         self.generate_param_substitutions()
         field_syms = [sympy.Symbol(mode_name) for mode_name in self.mode_names]
-        potential_variable_syms = [sympy.Symbol('delta_'+sym_name) for sym_name in potential_variables]
-        combined_syms = field_syms + potential_variable_syms
+        #potential_variable_syms = [sympy.Symbol('delta_'+sym_name) for sym_name in potential_variables]
+        combined_syms = field_syms + list(self.potential_variable_syms.values())
 
         for mode_name, eom_expr in self.eom_exprs.items():
             for pair in self.param_substitutions:
@@ -587,7 +588,7 @@ class Model:
             eom_func = sympy.lambdify(combined_syms, eom_expr*timescale)
             eom_funcs[mode_name] = eom_func
 
-        if len(potential_variables) == 0:
+        if len(self.potential_variable_syms) == 0:
             def eom(fields):
                 Dfields = np.array([eom_funcs[mode_name](*fields) for mode_name in self.mode_names])
                 return Dfields
