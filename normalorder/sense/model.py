@@ -209,16 +209,18 @@ class Model:
             self.resonator_params['C_0'] = C_0
             self.resonator_params['x_J'] = x_J
 
-    def set_modes(self, names: list=['a'], indices=None, initial_wavevectors=None):
+    def set_modes(self, names: list = ['a'], harmonic_numbers=None, initial_wavevectors=None):
 
         if not self.lumped_element:
-            if indices is None:
-                indices = np.arange(1, len(names) + 1)
+            if harmonic_numbers is None:
+                harmonic_numbers = np.arange(1, len(names) + 1)
             if initial_wavevectors is None:
-                initial_wavevectors = indices * np.pi / (2 * self.resonator_params['l'])
+                initial_wavevectors = harmonic_numbers * np.pi / (2 * self.resonator_params['l'])
             self.modes = dict()
 
-            self.mode_numbers = {name: idx for name, idx in zip(names, indices)}
+            self.harmonic_numbers = {name: idx for name, idx in zip(names, harmonic_numbers)}
+            self.mode_indices = {name: idx for idx, name in enumerate(names)}
+            self.harmonic_numbers_array = harmonic_numbers
             self.mode_names = names
             self.mode_ops = {}
             self.delta = 0.0
@@ -226,7 +228,7 @@ class Model:
             self.decay_rate_syms = {}
             C_total = 2 * self.resonator_params['l'] * self.resonator_params['C_0']
 
-            for name, index, k_init in zip(names, indices, initial_wavevectors):
+            for name, k_init in zip(names, initial_wavevectors):
                 mode = Mode()
                 mode.set_params(self.resonator_params)
                 mode.solve(k_init)
@@ -235,11 +237,11 @@ class Model:
                 self.mode_frequencies[name] = mode_frequency
 
                 specification = [[1] + 2 * len(names) * [0]]
-                specification[0][2 * self.mode_numbers[name]] = 1
+                specification[0][2 * (self.mode_indices[name]+1)] = 1
                 op = Operator(spec=specification)
                 self.mode_ops[name] = op
                 self.delta += mode.Delta * np.sqrt(constants.hbar / (4 * np.pi * mode_frequency * C_total)) * (
-                            op + op.dag()) * (1 / self.Phi_0)
+                        op + op.dag()) * (1 / self.Phi_0)
 
                 self.decay_rate_syms[name] = sympy.symbols('kappa_' + name)
                 self.decay_rates[name] = None
@@ -251,7 +253,8 @@ class Model:
 
         else:
             self.modes = dict()
-            self.mode_numbers = {names[0]: 1}
+            self.harmonic_numbers = {names[0]: 1}
+            self.harmonic_numbers_array = np.array([1])
             self.mode_names = names
             self.mode_ops = {}
             self.decay_rates = {}
@@ -267,7 +270,7 @@ class Model:
             self.mode_ops[names[0]] = op
 
             self.delta = np.sqrt(constants.hbar / (4 * np.pi * frequency * self.resonator_params['C_0'])) * (
-                        op + op.dag()) * (1 / self.Phi_0)
+                    op + op.dag()) * (1 / self.Phi_0)
 
     def set_decay_rates(self, decay_rates):
         self.decay_rates = decay_rates
@@ -456,7 +459,7 @@ class Model:
         for m in orders:
             potential_hamiltonian += self.c_func(m, substitutions=substitutions) * self.delta**m
         if rwa:
-            potential_hamiltonian = apply_rwa(potential_hamiltonian)
+            potential_hamiltonian = apply_rwa(potential_hamiltonian, mode_frequencies=self.harmonic_numbers_array)
         if inplace:
             self.potential_hamiltonian = potential_hamiltonian
         else:
@@ -467,7 +470,7 @@ class Model:
         for m in range(1, self.order+1):
             potential_derivative_op += self.dc_func(m, potential_variable_name)*self.delta**m
         if rwa:
-            potential_derivative_op = apply_rwa(potential_derivative_op)
+            potential_derivative_op = apply_rwa(potential_derivative_op, mode_frequencies=self.harmonic_numbers_array)
         return potential_derivative_op
 
     def generate_potential_derivative_eom_expr(self, potential_variable_name, mode_name):
@@ -494,7 +497,7 @@ class Model:
             drive_hamiltonian += drive_hamiltonian.dag()
             self.resonator_hamiltonian += drive_hamiltonian
             for name in self.mode_names:
-                self.resonator_hamiltonian -= self.mode_numbers[name] * self.drive_syms['f_d'] \
+                self.resonator_hamiltonian -= self.harmonic_numbers[name] * self.drive_syms['f_d'] \
                                               * self.mode_ops[name].dag() * self.mode_ops[name]
 
     def generate_hamiltonian(self, drive=True, potential_variables=[]):
