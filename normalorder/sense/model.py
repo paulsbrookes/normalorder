@@ -154,6 +154,8 @@ class Model:
         self.Phi_0 = constants.physical_constants['mag. flux quantum'][0]
         self.lumped_element = lumped_element
         self.combined_eom_exprs = {}
+        self.res = None
+        self.mode_indices = {}
 
     def set_order(self, order: int):
         """
@@ -302,7 +304,7 @@ class Model:
         self.potential_expr = potential_expr
         self.c_expr = tuple(self.generate_c_expr(m) for m in range(self.order + 2))
 
-    def set_potential_params(self, params: dict, delta_min_guess: float=None, delta_0: float=None):
+    def set_potential_params(self, params: dict):
         """
         Supply the values of the parameters which specify the form of the potential and find the minimum of that
         potential.
@@ -317,27 +319,29 @@ class Model:
         None
         """
 
-        if delta_min_guess is not None and delta_0 is not None:
-            raise Exception('Only one of delta_min_guess and delta_0 must be specified')
-
         self.potential_params = params
         self.potential_param_substitutions = [(self.potential_syms[key], self.potential_params[key])
                                               for key in self.potential_syms.keys()]
 
-        if delta_min_guess is not None:
-            self.find_delta_min(delta_min_guess)
-        else:
-            self.delta_0 = delta_0
 
-        substitutions = [(delta_sym, self.delta_0)]
-        for name in self.potential_syms.keys():
-            pair = (self.potential_syms[name], self.potential_params[name])
-            substitutions.append(pair)
+    def set_potential_params(self, params: dict):
+        """
+        Supply the values of the parameters which specify the form of the potential and find the minimum of that
+        potential.
 
-        c_2_at_min = self.c_expr[2].subs(substitutions)
-        L_J = self.Phi_0**2/(2*c_2_at_min*constants.h)
-        L_J = np.float(L_J.evalf())
-        self.resonator_params['L_J'] = L_J
+        Parameters
+        ----------
+        params : dict
+        A dictionary of potential parameter values.
+
+        Returns
+        -------
+        None
+        """
+
+        self.potential_params = params
+        self.potential_param_substitutions = [(self.potential_syms[key], self.potential_params[key])
+                                              for key in self.potential_syms.keys()]
 
     def generate_c_expr(self, m: int):
         """
@@ -414,6 +418,17 @@ class Model:
         potential = np.float(self.potential_expr.subs(substitutions).evalf())
         return potential
 
+    def find_delta_min_with_c4_constraint(self, x_initial, potential_variable):
+        def wrapper(x):
+            c_1 = self.c_func(1, delta=x[0])
+            c_4 = self.c_func(4, delta=x[0], substitutions={potential_variable: x[1]})
+            return np.array([c_1, c_4])
+
+        res = optimize.root(wrapper, x_initial)
+        self.res = res
+        self.delta_0 = res.x[0]
+        self.potential_params[potential_variable] = self.res.x[1]
+
     def find_delta_min(self, delta_min_guess: float=None, kwargs={}):
         """
         Find the value of the phase difference over the inductive element at which the potential is minimized.
@@ -443,6 +458,23 @@ class Model:
         if self.c_func(2) < 0:
             raise Exception('The second derivative is less than zero. This indicates you may have found a maximum, '
                             'rather than a minimum. Please use an alternative value for delta_min_guess.')
+
+    def set_delta_0(self, delta_0):
+        self.delta_0 = delta_0
+
+    def calculate_L_J(self):
+        if self.delta_0 is None:
+            self.find_delta_min()
+
+        substitutions = [(delta_sym, self.delta_0)]
+        for name in self.potential_syms.keys():
+            pair = (self.potential_syms[name], self.potential_params[name])
+            substitutions.append(pair)
+
+        c_2_at_min = self.c_expr[2].subs(substitutions)
+        L_J = self.Phi_0**2/(2*c_2_at_min*constants.h)
+        L_J = np.float(L_J.evalf())
+        self.resonator_params['L_J'] = L_J
 
     def generate_potential_hamiltonian(self, rwa=True, substitutions={}, orders=None, inplace=True):
         """
