@@ -156,6 +156,7 @@ class Model:
         self.combined_eom_exprs = {}
         self.res = None
         self.mode_indices = {}
+        self.steady_state_res = None
 
     def set_order(self, order: int):
         """
@@ -429,7 +430,7 @@ class Model:
         self.delta_0 = res.x[0]
         self.potential_params[potential_variable] = self.res.x[1]
 
-    def find_delta_min(self, delta_min_guess: float=None, kwargs={}):
+    def find_delta_min(self, delta_min_guess: float=None, kwargs={}, use_minimizer=True):
         """
         Find the value of the phase difference over the inductive element at which the potential is minimized.
 
@@ -442,16 +443,24 @@ class Model:
         -------
         None
         """
+
+        if delta_min_guess is None:
+            delta_min_guess = 2 * np.pi * 3 * np.random.rand()
+        elif isinstance(delta_min_guess, float):
+            delta_min_guess = np.array([delta_min_guess])
+
+        if use_minimizer:
+            def wrapper_minimize(x):
+                return self.potential_func(x[0])
+            self.res_minimize = optimize.minimize(wrapper_minimize, delta_min_guess)
+            delta_min_guess = self.res_minimize.x[0]
+
         def wrapper(x):
             return self.c_func(1, delta=x[0])
 
         if not 'tol' in kwargs.keys():
             kwargs['tol'] = 0.0
 
-        if delta_min_guess is None:
-            delta_min_guess = 2 * np.pi * 3 * np.random.rand()
-        elif isinstance(delta_min_guess, float):
-            delta_min_guess = np.array([delta_min_guess])
         res = optimize.root(wrapper, delta_min_guess, **kwargs)
         self.res = res
         self.delta_0 = res.x[0]
@@ -632,6 +641,22 @@ class Model:
                 Dfields = np.array([eom_funcs[mode_name](*fields, *args) for mode_name in self.mode_names])
                 return Dfields
         self.eom = eom
+
+    def find_steady_state(self, x0=None):
+        n_modes = len(self.modes)
+        n_potential_variables = len(self.potential_variable_syms)
+
+        def root_wrapper(x):
+            y = (x.reshape(-1, 2) * np.array([1, 1j])[np.newaxis,:]).sum(axis=1)
+            args = tuple(0 for i in range(n_potential_variables))
+            dy = self.eom(y, *args)
+            return np.vstack([dy.real, dy.imag]).T.flatten()
+
+        if x0 is None:
+            x0 = np.array([0 for i in range(2*n_modes)])
+
+        res = optimize.root(root_wrapper, x0)
+        self.steady_state_res = res
 
     def plot_potential(self, delta_limits=[-0.5, 0.5], n_points=51, ax=None):
         delta_array = np.linspace(*delta_limits, n_points)
