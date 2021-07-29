@@ -4,6 +4,7 @@ import sympy
 import numpy as np
 from unittest import TestCase
 from scipy import constants
+import pandas as pd
 
 
 def reform_ham(ham):
@@ -214,42 +215,84 @@ class TestModel(TestCase):
         for key, value in difference.items():
             self.assertAlmostEqual(value, 0.0, delta=1e-7)
 
+    def test_dalpha_func(self):
+
+        order = 2
+
+        model = Model()
+        model.set_order(order)
+
+        n = 3
+        delta_sym, f_J_sym, phi_ext_sym, f_J_1_sym, f_J_2_sym, phi_squid_sym = sympy.symbols(
+            'delta f_J phi_ext f_J_1 f_J_2 phi_squid')
+        potential_param_symbols = {'f_J': f_J_sym, 'phi_ext': phi_ext_sym, 'f_J_1': f_J_1_sym, 'f_J_2': f_J_2_sym,
+                                   'phi_squid': phi_squid_sym}
+
+        potential_expr = - f_J_1_sym * sympy.cos(2 * sympy.pi * delta_sym) - f_J_2_sym * sympy.cos(
+            2 * sympy.pi * (delta_sym + phi_squid_sym)) - f_J_sym * n * sympy.cos(
+            2 * sympy.pi * (delta_sym - phi_ext_sym) / n)
+        model.set_potential(potential_expr, potential_param_symbols)
+
+        f_J = 7.5e11
+        f_J_1 = 7.5e11
+        f_J_2 = 1.02 * 7.5e11
+        phi_squid = 0.49505
+
+        phi_ext = 0.17691451037328657
+        potential_params = {'f_J': f_J, 'phi_ext': phi_ext, 'f_J_1': f_J_1, 'f_J_2': f_J_2, 'phi_squid': phi_squid}
+        model.set_potential_params(potential_params)
+
+        delta_min_guess = 0.5
+        model.find_delta_min(delta_min_guess=delta_min_guess)
+        model.calculate_L_J()
+
+        Z = 50  # ohms
+        v_p = 1.1817e8  # m/s
+        l = 0.007809801198766881  # m
+        L_0 = Z / v_p  # H/m
+        C_0 = 1 / (v_p * Z)  # F/m
+        x_J = 0.0  # m
+
+        model.set_resonator_params(x_J=x_J, L_0=L_0, l=l, C_0=C_0)
+
+        harmonic_numbers = np.array([1])
+        model.set_modes(names=['a'], harmonic_numbers=harmonic_numbers)
+        model.generate_hamiltonian(drive=True, potential_variables=['phi_ext'])
+
+        Q_a = 10000
+        kappa_a = model.modes['a'].frequency / Q_a
+
+        f_0 = 3406668961.35998
+        f_d_array = f_0 + np.linspace(-0.1, 0.1, 2001) * kappa_a
+
+        epsilon = 1.0 * kappa_a
+
+        model.generate_lindblad_ops()
+        model.generate_eom_ops()
+        model.generate_eom_exprs()
+        model.generate_dalpha_func()
+
+        results_array = np.zeros([f_d_array.shape[0], 2], dtype=complex)
+        for idx, f_d in enumerate(f_d_array):
+            results_array[idx] = model.dalpha_func(f_d, epsilon, kappa_a)
+
+        results_frame = pd.DataFrame(results_array, index=f_d_array, columns=['dalpha', 'alpha'])
+
+        crosscheck = np.diff(results_frame['alpha']) / np.diff(results_frame.index)
+        crosscheck = pd.Series(crosscheck, index=results_frame.index[1:])
+
+        self.assertTrue(np.allclose(crosscheck.values, results_frame['dalpha'].iloc[:-1].values))
 
 
+
+
+### Need to rewrite those below.
     def test_set_order(self):
         for order in [0, 1, 2, 1, 0]:
             self.model.set_order(order)
             self.assertEqual(self.model.order, order)
             self.assertIsInstance(self.model.c_sym, tuple)
             self.assertEqual(len(self.model.c_sym), order + 2)
-            for m in range(order + 1):
-                self.assertIsNotNone(self.model.generate_g_expr(m))
-
-    def test_c_and_g_expr_gen(self):
-        phi_sym, phi_ext_sym, nu_sym, n_sym = sympy.symbols('phi phi_ext nu n')
-        potential_param_syms = {'phi_ext': phi_ext_sym,
-                                'nu': nu_sym,
-                                'n': n_sym}
-        potential_expr = -nu_sym * sympy.cos(phi_sym) - n_sym * sympy.cos((phi_ext_sym - phi_sym) / n_sym)
-        n = 3
-        phi_ext = 2 * np.pi * np.random.rand()
-        nu = np.random.rand() * 0.9 / n
-        potential_params = {'phi_ext': phi_ext,
-                            'n': n,
-                            'nu': nu}
-        order = 3
-
-        self.model.set_order(order)
-        self.model.set_potential(potential_expr, potential_param_syms)
-        self.model.set_potential_params(potential_params)
-
-        for idx in range(order + 2):
-            phi = n * 2 * np.pi * np.random.rand()
-            assert isinstance(self.model.c_func(idx, phi), float)
-
-        for idx in range(order + 1):
-            phi = n * 2 * np.pi * np.random.rand()
-            assert isinstance(self.model.g_func(idx, phi), float)
 
     def test_set_resonator_params(self):
         params_a = {'f': 1.0,
@@ -317,29 +360,6 @@ class TestModel(TestCase):
                 phi = 2 * np.pi * n * np.random.rand()
                 substitutions = param_substitutions + [(phi_sym, phi)]
                 self.assertEqual(self.model.potential_func(phi), potential_expr.subs(substitutions))
-
-    def test_g_func(self):
-        phi_sym, phi_ext_sym, nu_sym, n_sym, f_J_sym = sympy.symbols('phi phi_ext nu n f_J')
-        potential_param_symbols = {'phi_ext': phi_ext_sym,
-                                   'nu': nu_sym,
-                                   'n': n_sym,
-                                   'f_J': f_J_sym}
-        potential_expr = -nu_sym * sympy.cos(phi_sym) - n_sym * sympy.cos((phi_ext_sym - phi_sym) / n_sym)
-        n = 3
-        phi_ext = 2 * np.pi * np.random.rand()
-        nu = np.random.rand() * 0.9 / n
-        f_J = 7500.0
-        potential_params = {'phi_ext': phi_ext,
-                            'nu': nu,
-                            'n': n,
-                            'f_J': f_J}
-
-        self.model.set_potential(potential_expr, potential_param_symbols)
-        self.model.set_potential_params(potential_params)
-
-        for idx in range(self.model.order):
-            phi = 2*np.pi*n*np.random.rand()
-            self.assertNotNone(self.mode.g_func(idx, phi))
 
     def test_find_phi_min(self):
         phi_sym, phi_ext_sym, nu_sym, n_sym, f_J_sym = sympy.symbols('phi phi_ext nu n f_J')

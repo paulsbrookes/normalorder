@@ -157,6 +157,8 @@ class Model:
         self.res = None
         self.mode_indices = {}
         self.steady_state_res = None
+        self.mode_syms = None
+        self.dalpha_func = None
 
     def set_order(self, order: int):
         """
@@ -275,6 +277,8 @@ class Model:
             self.delta = np.sqrt(constants.hbar / (4 * np.pi * frequency * self.resonator_params['C_0'])) * (
                     op + op.dag()) * (1 / self.Phi_0)
 
+        self.mode_syms = {mode_name: sympy.Symbol(mode_name) for mode_name in self.mode_names}
+
     def set_decay_rates(self, decay_rates):
         self.decay_rates = decay_rates
 
@@ -304,26 +308,6 @@ class Model:
         self.potential_syms = potential_param_syms
         self.potential_expr = potential_expr
         self.c_expr = tuple(self.generate_c_expr(m) for m in range(self.order + 2))
-
-    def set_potential_params(self, params: dict):
-        """
-        Supply the values of the parameters which specify the form of the potential and find the minimum of that
-        potential.
-
-        Parameters
-        ----------
-        params : dict
-        A dictionary of potential parameter values.
-
-        Returns
-        -------
-        None
-        """
-
-        self.potential_params = params
-        self.potential_param_substitutions = [(self.potential_syms[key], self.potential_params[key])
-                                              for key in self.potential_syms.keys()]
-
 
     def set_potential_params(self, params: dict):
         """
@@ -669,6 +653,81 @@ class Model:
         if self.delta_0 is not None:
             ax.axvline(self.delta_0)
         return ax
+
+    def generate_dfield_func(self):
+        single_dfield_funcs = []
+        field_syms = [sympy.Symbol(mode_name) for mode_name in self.mode_names]
+        conjugate_field_syms = [sympy.Symbol(mode_name+'^*') for mode_name in self.mode_names]
+
+        temporary_conjugate_substitutions = []
+        reverse_conjugate_substitutions = []
+        for jdx in range(len(self.mode_names)):
+            temporary_conjugate_substitutions += [(sympy.conjugate(field_syms[jdx]), conjugate_field_syms[jdx])]
+            reverse_conjugate_substitutions += [(conjugate_field_syms[jdx], sympy.conjugate(field_syms[jdx]))]
+
+        for idx, mode_name in enumerate(self.mode_names):
+            temporary_eom_expr = self.eom_exprs[mode_name]
+            temporary_eom_expr = temporary_eom_expr.subs(temporary_conjugate_substitutions)
+            A = sympy.diff(self.eom_exprs[mode_name], self.drive_syms['f_d'])
+            B = sympy.diff(temporary_eom_expr, field_syms[idx])
+            B = B.subs(reverse_conjugate_substitutions)
+            C = sympy.diff(temporary_eom_expr, conjugate_field_syms[idx])
+            C = C.subs(reverse_conjugate_substitutions)
+            dfield_expr = (A.conjugate() * C - A * B.conjugate()) / (B * B.conjugate() - C * C.conjugate())
+            single_dfield_func = sympy.lambdify(field_syms, dfield_expr.subs(self.param_substitutions))
+            single_dfield_funcs.append(single_dfield_func)
+
+        def dfield_func(*fields):
+            dfields = np.array([f(*fields) for f in single_dfield_funcs])
+            return dfields
+
+        self.dfield_func = dfield_func
+
+    def generate_dalpha_func(self):
+        assert len(self.mode_names) == 1
+        mode_name = self.mode_names[0]
+        param_syms = [self.drive_syms['f_d'], self.drive_syms['epsilon'], self.decay_rate_syms[mode_name]]
+        field_sym = sympy.Symbol(mode_name)
+        conjugate_field_sym = sympy.Symbol(mode_name+'^*')
+
+        combined_syms = [field_sym] + param_syms
+
+        eom_expr = self.eom_exprs[mode_name]
+        for potential_variable_sym in self.potential_variable_syms.values():
+            eom_expr = eom_expr.subs(potential_variable_sym, 0.0)
+
+        eom_func = sympy.lambdify(combined_syms, eom_expr, 'numpy')
+
+        temporary_conjugate_substitution = (sympy.conjugate(field_sym), conjugate_field_sym)
+        reverse_conjugate_substitution = (conjugate_field_sym, sympy.conjugate(field_sym))
+
+        eom_expr = eom_expr.subs(*temporary_conjugate_substitution)
+        A = sympy.diff(eom_expr, self.drive_syms['f_d'])
+        B = sympy.diff(eom_expr, field_sym)
+        C = sympy.diff(eom_expr, conjugate_field_sym)
+        dalpha_expr = (A.conjugate() * C - A * B.conjugate()) / (B * B.conjugate() - C * C.conjugate())
+        dalpha_expr = dalpha_expr.subs(*reverse_conjugate_substitution)
+        dalpha_func_alpha_dependent = sympy.lambdify(combined_syms, dalpha_expr)
+
+        def root_objective(x, f_d, epsilon, kappa):
+            alpha = x[0] + 1j*x[1]
+            dalpha = eom_func(alpha, f_d, epsilon, kappa)
+            return np.array([dalpha.real, dalpha.imag])
+
+        def dalpha_func(f_d, epsilon, kappa, alpha_ss_0=0.0, return_alpha_ss=True, method='lm'):
+            args = (f_d, epsilon, kappa)
+            x0 = [alpha_ss_0.real, alpha_ss_0.imag]
+            res = optimize.root(root_objective, args=args, x0=x0, tol=0.0, method=method)
+            alpha_ss = res.x[0] + 1j*res.x[1]
+            dalpha_ss = dalpha_func_alpha_dependent(alpha_ss, f_d, epsilon, kappa)
+            if return_alpha_ss:
+                return dalpha_ss, alpha_ss
+            else:
+                return dalpha_ss
+
+        self.dalpha_func = dalpha_func
+
+
 
 def package_substitutions(syms, params):
     substitutions = []
