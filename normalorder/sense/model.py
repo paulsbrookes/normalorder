@@ -324,9 +324,9 @@ class Model:
         None
         """
 
-        self.potential_params = params
+        self.potential_params.update(params)
         self.potential_param_substitutions = [(self.potential_syms[key], self.potential_params[key])
-                                              for key in self.potential_syms.keys()]
+                                              for key in self.potential_params.keys()]
 
     def generate_c_expr(self, m: int):
         """
