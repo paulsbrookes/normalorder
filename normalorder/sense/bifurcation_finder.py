@@ -90,7 +90,7 @@ class BifurcationFinder:
             potential_params['phi_ext'] = phi_ext
             self.model.set_potential_params(potential_params)
             self.model.find_delta_min(delta_min_guess=delta_min_guess)
-            c_4 = model.c_func(4)
+            c_4 = self.model.c_func(4)
             self.c_4_array[idx] = c_4
         potential_params['phi_ext'] = phi_ext_original
         self.model.set_potential_params(potential_params)
@@ -213,3 +213,73 @@ class BifurcationFinder:
         sol_frame.index *= 1e6
 
         self.sol_frame = sol_frame
+
+
+def task(potential_params, resonator_params, Q, phi_squid, phi_ext_initial=-0.2, delta_min_guess=0.5, phi_ext=None):
+    threshold = 0.5
+    order = 8
+    n = 3
+    delta_sym, f_J_sym, phi_ext_sym, f_J_1_sym, f_J_2_sym, phi_squid_sym = sympy.symbols(
+        'delta f_J phi_ext f_J_1 f_J_2 phi_squid')
+    potential_param_symbols = {'f_J': f_J_sym, 'phi_ext': phi_ext_sym, 'f_J_1': f_J_1_sym, 'f_J_2': f_J_2_sym,
+                               'phi_squid': phi_squid_sym}
+    potential_expr = - f_J_1_sym * sympy.cos(2 * sympy.pi * delta_sym) - f_J_2_sym * sympy.cos(
+        2 * sympy.pi * (delta_sym + phi_squid_sym)) - f_J_sym * n * sympy.cos(
+        2 * sympy.pi * (delta_sym - phi_ext_sym) / n)
+
+    phi_ext_initial = [phi_ext_initial]
+
+    f_J_1 = potential_params['f_J_1']
+    f_J_2 = potential_params['f_J_2']
+    f_J = potential_params['f_J']
+
+    alpha = f_J_func(phi_squid, f_J_1, f_J_2) / f_J
+
+    model = Model()
+    model.set_order(order)
+    model.set_potential(potential_expr, potential_param_symbols)
+
+    if phi_ext is None:
+        model.set_potential_params(potential_params)
+        res = optimize.root(c_4_objective_func, phi_ext_initial, args=(model,))
+        phi_ext = res.x[0]
+
+    potential_params = {'phi_ext': phi_ext}
+    model.set_potential_params(potential_params)
+    model.find_delta_min(delta_min_guess=delta_min_guess)
+    model.calculate_L_J()
+    model.set_resonator_params(**resonator_params)
+    harmonic_numbers = np.array([1])
+    model.set_modes(names=['a'], harmonic_numbers=harmonic_numbers)
+    model.generate_hamiltonian(drive=True, potential_variables=['phi_squid'])
+    kappa_a = model.modes['a'].frequency / Q
+    decay_rates = {'a': kappa_a}
+    model.set_decay_rates(decay_rates)
+    model.generate_lindblad_ops()
+    model.generate_eom_ops()
+    model.generate_eom_exprs()
+    model.generate_dalpha_func()
+
+    bf = BifurcationFinder(model)
+    bf.Q = Q
+    bf.alpha = alpha
+
+    try:
+        bf.find_bifurcation(epsilon_limits=[0.001, 50.0], threshold=threshold)
+        bf.run_simulation()
+    except:
+        print('Failure.')
+
+    return bf
+
+
+def extract_results(bf):
+    results = {'potential_params': bf.model.potential_params,
+               'drive_params': bf.model.drive_params,
+               'resonator_params': bf.model.resonator_params,
+               'mode_frequencies': bf.model.mode_frequencies,
+               'signal': obtain_signal(bf.sol_frame),
+               'decay_rates': bf.model.decay_rates,
+               'Q': bf.Q,
+               'alpha': bf.alpha}
+    return results
